@@ -27,6 +27,7 @@ import { fetchProducts } from '@/store/slices/productsSlice';
 import { fetchProfile } from '@/store/slices/profileSlice';
 import { fetchAddresses } from '@/store/slices/addressesSlice';
 import { fetchOrders } from '@/store/slices/ordersSlice';
+import { fetchWallet } from '@/store/slices/walletSlice';
 import { useFreshStore } from '@/store/useFreshStore';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -81,6 +82,7 @@ export default function HomeScreen() {
   const { hasLoaded: profileHasLoaded, isLoading: profileIsLoading, error: profileError } = useAppSelector((state) => state.profile);
   const { hasLoaded: addressesHaveLoaded, isLoading: addressesAreLoading, error: addressesError } = useAppSelector((state) => state.addresses);
   const { hasLoaded: ordersHaveLoaded, isLoading: ordersAreLoading, error: ordersError } = useAppSelector((state) => state.orders);
+  const { hasLoaded: walletHasLoaded, isLoading: walletIsLoading, error: walletError } = useAppSelector((state) => state.wallet);
   const bannerSkeletonOpacity = useRef(new Animated.Value(0.45)).current;
   const isBannerLoading = bannerStatus === 'idle' || bannerStatus === 'loading';
   const displayBanners =
@@ -141,6 +143,7 @@ export default function HomeScreen() {
       if (!profileHasLoaded && !profileIsLoading) dispatch(fetchProfile());
       if (!addressesHaveLoaded && !addressesAreLoading) dispatch(fetchAddresses());
       if (!ordersHaveLoaded && !ordersAreLoading) dispatch(fetchOrders());
+      if (!walletHasLoaded && !walletIsLoading) dispatch(fetchWallet());
     }, [
       addressesAreLoading,
       addressesHaveLoaded,
@@ -152,6 +155,8 @@ export default function HomeScreen() {
       productsStatus,
       profileHasLoaded,
       profileIsLoading,
+      walletHasLoaded,
+      walletIsLoading,
     ]),
   );
 

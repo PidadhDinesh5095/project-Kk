@@ -64,16 +64,14 @@ export function PrimaryButton({
     <Pressable
       disabled={disabled}
       onPress={onPress}
-      className={`min-h-[50px] flex-row items-center justify-center gap-2 rounded-[25px] bg-[#023E8A] ${disabled ? 'opacity-[0.45]' : ''
+      className={`min-h-[55px] flex-row items-center justify-center gap-2 rounded-full bg-[#023E8A] ${disabled ? 'opacity-[0.45]' : ''
         }`}
     >
-      <Text className="text-[15px] font-raleway-semibold text-white">
+      <Text className="text-[18px] font-raleway-semibold text-white">
         {label}
       </Text>
 
-      <Text className="text-[18px] font-raleway-semibold text-white">
-        →
-      </Text>
+     
     </Pressable>
   );
 }
@@ -370,7 +368,7 @@ export function SectionTitle({
 }) {
   return (
     <View className="mb-3 flex-row items-center justify-between">
-      <Text className="text-[17px] font-raleway-semibold text-[#0F172A]">
+      <Text className="text-[18px] font-raleway-bold text-[#0F172A]">
         {title}
       </Text>
 

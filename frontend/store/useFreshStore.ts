@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { addWalletMoney } from '@/store/slices/walletSlice';
 import { addNotification, clearNotifications, markNotificationRead } from '@/store/slices/notificationsSlice';
 import { addSubscription, removeSubscription, setActiveSubscription, updateSubscription } from '@/store/slices/subscriptionSlice';
 import { addOrder, updateOrderStatus } from '@/store/slices/ordersSlice';
@@ -30,6 +29,13 @@ export function useFreshStore() {
     profile,
     walletBalance: wallet.balance,
     transactions: wallet.transactions,
+    walletIsLoading: wallet.isLoading,
+    walletIsDepositing: wallet.isDepositing,
+    walletIsLoadingTransactions: wallet.isLoadingTransactions,
+    walletHasMoreTransactions: wallet.hasMoreTransactions,
+    walletTransactionsOffset: wallet.transactionsOffset,
+    walletError: wallet.error,
+    walletDepositError: wallet.depositError,
     subscription: activeSubscription,
     subscriptions,
     notifications,
@@ -39,7 +45,6 @@ export function useFreshStore() {
     productsError,
     productsHasLoaded,
     orders,
-    addWalletMoney: useCallback((amount: number) => dispatch(addWalletMoney(amount)), [dispatch]),
     addNotification: useCallback((notification: Notification) => dispatch(addNotification(notification)), [dispatch]),
     clearNotifications: useCallback(() => dispatch(clearNotifications()), [dispatch]),
     markNotificationRead: useCallback((id: string) => dispatch(markNotificationRead(id)), [dispatch]),

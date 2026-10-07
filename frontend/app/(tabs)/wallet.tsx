@@ -1,161 +1,533 @@
-
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft,
+  ActivityIndicator,
+  Animated,
+  FlatList,
+  Platform,
+  Pressable,
+  RefreshControl,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import RazorpayCheckout from 'react-native-razorpay';
+import {
   ArrowDownLeft,
+  ArrowLeft,
   ArrowUpRight,
-  Wallet,
+  Check,
+  Wallet as WalletIcon,
 } from 'lucide-react-native';
+import { colors, PrimaryButton, SectionTitle } from '@/components/FreshComponents';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
-  colors,
-  PrimaryButton,
-  SectionTitle,
-} from '@/components/FreshComponents';
-import { useFreshStore } from '@/store/useFreshStore';
+  cancelWalletTopup,
+  fetchWallet,
+  fetchWalletTransactions,
+  initiateWalletTopup,
+  verifyWalletTopup,
+} from '@/store/slices/walletSlice';
+import type { VerifyTopupResult } from '@/store/slices/walletSlice';
+import type { WalletTransaction } from '@/types/fresh';
 
 const quickAmounts = [100, 200, 500, 1000];
 
-export default function WalletScreen() {
-  const {
-    walletBalance,
-    transactions,
-    addWalletMoney,
-  } = useFreshStore();
+type WalletAlert = {
+  title: string;
+  message: string;
+  actions: Array<{ label: string; onPress?: () => void; style?: 'primary' | 'secondary' | 'danger' }>;
+};
 
-  const [selected, setSelected] = useState(200);
+const transactionStyles = {
+  container: {
+    marginBottom: 10,
+    borderRadius: 14,
+    padding: 14,
+    borderColor: '#E2E8F0',
+  },
+  titleFont: 'font-raleway-bold',
+  metaFont: 'font-raleway-semibold',
+  amountFont: 'font-raleway-bold',
+  creditColor: '#22C55E',
+  debitColor: '#EF4444',
+  iconBackground: {
+    credit: '#DCFCE7',
+    debit: '#FEE2E2',
+  },
+};
+
+function VerificationStatusModal({
+  isVisible,
+  isSuccess,
+}: {
+  isVisible: boolean;
+  isSuccess: boolean;
+}) {
+  const pulseAnim = useMemo(() => new Animated.Value(0.8), []);
+  const scaleAnim = useMemo(() => new Animated.Value(0.7), []);
+  const opacityAnim = useMemo(() => new Animated.Value(0), []);
+  const sparkleAnims = useMemo(
+    () =>
+      Array.from({ length: 8 }, (_, index) => ({
+        anim: new Animated.Value(0),
+        angle: (Math.PI * 2 * index) / 8,
+      })),
+    [],
+  );
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.8, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+
+    const entrance = Animated.parallel([
+      Animated.timing(scaleAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(opacityAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+    ]);
+
+    const sparkleAnimations = sparkleAnims.map((sparkle) =>
+      Animated.sequence([
+        Animated.delay(sparkle.angle * 150),
+        Animated.timing(sparkle.anim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.timing(sparkle.anim, { toValue: 0, duration: 500, useNativeDriver: true }),
+      ]),
+    );
+
+    pulse.start();
+    entrance.start();
+    if (isSuccess) {
+      Animated.stagger(80, sparkleAnimations).start();
+    }
+
+    return () => {
+      pulse.stop();
+      sparkleAnimations.forEach((animation) => animation.stop());
+    };
+  }, [isSuccess, isVisible, opacityAnim, pulseAnim, scaleAnim, sparkleAnims]);
+
+  const checkStyles = isSuccess
+    ? { backgroundColor: '#16A34A', borderColor: '#86EFAC' }
+    : { backgroundColor: '#EEF3FF', borderColor: '#C7D9FF' };
+
+  if (!isVisible) return null;
 
   return (
-    <View className="flex-1 bg-[#F7F9FC]">
-      <Pressable
-        className="ml-4 mt-2"
-        onPress={() => router.back()}
-        hitSlop={12}
+    <View className="absolute inset-0 z-50 items-center justify-center bg-[#0F172A]/60 px-8">
+      <Animated.View
+        className="w-full items-center rounded-[32px] bg-white p-8 shadow-2xl"
+        style={{ opacity: opacityAnim, transform: [{ scale: scaleAnim }] }}
       >
-        <Text className="text-[32px] leading-[30px] text-[#111827]">
-          <ArrowLeft size={28} color="#111827" />
-        </Text>
-      </Pressable>
+        <View className="relative mb-6 h-28 w-28 items-center justify-center">
+          <Animated.View
+            className="absolute h-28 w-28 rounded-full border-4 border-[#C7D9FF]"
+            style={{ transform: [{ scale: pulseAnim }] }}
+          />
+          <Animated.View
+            className="absolute h-24 w-24 items-center justify-center rounded-full border-[6px] border-white"
+            style={{
+              backgroundColor: checkStyles.backgroundColor,
+              borderColor: isSuccess ? '#86EFAC' : '#C7D9FF',
+            }}
+          >
+            {isSuccess ? (
+              <Check size={54} color="#FFFFFF" strokeWidth={3} />
+            ) : (
+              <ActivityIndicator size="large" color={colors.primary} />
+            )}
+          </Animated.View>
 
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingBottom: 100,
-        }}
-      >
-        <Text className="mb-4 mt-2 text-[22px] font-bold text-[#111827]">
-          My Wallet
-        </Text>
-
-        <View className="rounded-[20px] bg-[#023E8A] p-5">
-          <View className="flex-row items-center gap-2">
-            <Wallet size={18} color="#fff" />
-
-            <Text className="text-[13px] font-bold text-[#DCE6FF]">
-              Available Balance
-            </Text>
-          </View>
-
-          <Text className="mt-2 text-[34px] font-bold text-white">
-            ₹{walletBalance.toFixed(2)}
-          </Text>
-
-          <Text className="mt-2 text-[12px] text-[#DCE6FF]">
-            Use wallet for faster checkout & cashback rewards
-          </Text>
-        </View>
-
-        <Text className="mb-2.5 mt-6 text-[15px] font-bold text-[#111827]">
-          Add Money
-        </Text>
-
-        <View className="flex-row flex-wrap gap-2">
-          {quickAmounts.map((amt) => (
-            <Pressable
-              key={amt}
-              className={`min-w-[70px] flex-1 items-center rounded-[14px] border bg-white py-3.5 ${
-                selected === amt
-                  ? 'border-[#023E8A] bg-[#EEF3FF]'
-                  : 'border-[#E2E8F0]'
-              }`}
-              onPress={() => setSelected(amt)}
-            >
-              <Text
-                className={`text-[15px] font-bold ${
-                  selected === amt
-                    ? 'text-[#023E8A]'
-                    : 'text-[#111827]'
-                }`}
-              >
-                ₹{amt}
-              </Text>
-            </Pressable>
+          {isSuccess && sparkleAnims.map((sparkle, index) => (
+            <Animated.View
+              key={index}
+              className="absolute h-3 w-3 rounded-full bg-[#FBBF24]"
+              style={{
+                opacity: sparkle.anim,
+                transform: [
+                  { translateX: sparkle.anim.interpolate({ inputRange: [0, 1], outputRange: [0, Math.cos(sparkle.angle) * 52] }) },
+                  { translateY: sparkle.anim.interpolate({ inputRange: [0, 1], outputRange: [0, Math.sin(sparkle.angle) * 52] }) },
+                  { scale: sparkle.anim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.2] }) },
+                ],
+              }}
+            />
           ))}
         </View>
 
-        <View className="mt-5">
-          <PrimaryButton
-            label={`Add ₹${selected} to Wallet`}
-            onPress={() => addWalletMoney(selected)}
-          />
+        <Text className="text-center text-[24px] font-raleway-bold text-[#111827]">
+          {isSuccess ? 'Payment Successful' : 'Verifying Payment'}
+        </Text>
+        <Text className="mt-2 text-center font-raleway-bold text-[14px] text-[#64748B]">
+          {isSuccess
+            ? 'Your wallet has been updated.'
+            : 'Please wait while we confirm your payment.'}
+        </Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+function TransactionRow({ transaction }: { transaction: WalletTransaction }) {
+  const isCredit = transaction.direction === 'credit';
+  
+  const iconBackground = isCredit ? transactionStyles.iconBackground.credit : transactionStyles.iconBackground.debit;
+
+  return (
+    <View
+      className="mx-2.5 p-2 flex-row items-center gap-3 bg-white"
+      style={{
+        marginBottom: transactionStyles.container.marginBottom,
+        borderRadius: transactionStyles.container.borderRadius,
+        padding: transactionStyles.container.padding,
+        borderColor: transactionStyles.container.borderColor,
+      }}
+    >
+      
+
+      <View className="flex-1">
+        <Text className={`text-[16px] font-raleway-bold text-[#111827]`}>{transaction.title}</Text>
+        <Text className={`mt-0.5 text-[12px] text-[#64748B]`}>{transaction.timestamp}</Text>
+      </View>
+
+      <Text className={` text-[14px] ${isCredit ? 'text-[#023E8A]' : 'text-[#EF4444]'}`} >
+        {isCredit ? '+' : '-'}₹{transaction.amount.toFixed(2)}
+      </Text>
+    </View>
+  );
+}
+
+function WalletAlertModal({
+  alert,
+  isVisible,
+  onClose,
+}: {
+  alert: WalletAlert | null;
+  isVisible: boolean;
+  onClose: () => void;
+}) {
+  if (!isVisible || !alert) return null;
+
+  return (
+    <View className="absolute inset-0 z-50 items-center justify-center bg-[#0F172A]/60 px-6">
+      <View className="w-full overflow-hidden rounded-[24px] bg-white shadow-2xl">
+        <View className="border-b border-[#E2E8F0] bg-[#023E8A] px-6 py-5">
+          <Text className="text-center text-[20px] font-raleway-bold text-white">{alert.title}</Text>
         </View>
 
-        <View className="mt-5 rounded-[14px] bg-[#DCFCE7] p-3.5">
-          <Text className="text-[13px] font-bold text-[#15803D]">
-            Earn ₹50 cashback on every 5th order!
+        <View className="px-6 py-6">
+          <Text className="text-center text-[15px] leading-6 font-raleway-semibold text-[#475569]">
+            {alert.message}
           </Text>
         </View>
 
-        <SectionTitle title="Transaction History" />
+        <View className="flex-row gap-3 border-t border-[#E2E8F0] px-6 py-4">
+          {alert.actions.map((action, index) => {
+            const buttonStyle = action.style === 'danger'
+              ? 'bg-[#FEE2E2]'
+              : action.style === 'secondary'
+                ? 'bg-[#EEF3FF]'
+                : 'bg-[#023E8A]';
+            const buttonTextColor = action.style === 'danger' ? '#B91C1C' : '#FFFFFF';
 
-        {transactions.map((t) => (
-          <View
-            key={t.id}
-            className="mb-2.5 flex-row items-center gap-3 rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+            return (
+              <Pressable
+                key={`${action.label}-${index}`}
+                className={`flex-1 items-center justify-center rounded-[12px] px-4 py-3 ${buttonStyle}`}
+                onPress={() => { action.onPress?.(); onClose(); }}
+              >
+                <Text className="text-[14px] font-raleway-bold" style={{ color: buttonTextColor }}>
+                  {action.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export default function WalletScreen() {
+  const dispatch = useAppDispatch();
+  const wallet = useAppSelector((state) => state.wallet);
+  const user = useAppSelector((state) => state.user);
+  const profile = useAppSelector((state) => state.profile.details);
+  const [amountInput, setAmountInput] = useState('200');
+  const [walletAlert, setWalletAlert] = useState<WalletAlert | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<{
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  } | null>(null);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const pageRequestActive = useRef(false);
+  const isRefreshing = wallet.isLoading || (wallet.isLoadingTransactions && wallet.transactionsOffset === 0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!wallet.hasLoaded || wallet.error) {
+        void dispatch(fetchWallet());
+      }
+      if (
+        wallet.transactions.length === 0 &&
+        wallet.hasMoreTransactions &&
+        !wallet.isLoadingTransactions &&
+        !wallet.transactionsError
+      ) {
+        pageRequestActive.current = true;
+        void dispatch(fetchWalletTransactions({ offset: 0, append: false }))
+          .finally(() => { pageRequestActive.current = false; });
+      }
+    }, [dispatch, wallet.error, wallet.hasLoaded, wallet.hasMoreTransactions, wallet.isLoadingTransactions, wallet.transactions.length, wallet.transactionsError]),
+  );
+
+  const loadMoreTransactions = useCallback(async (retry = false) => {
+    if (pageRequestActive.current || wallet.isLoadingTransactions || !wallet.hasMoreTransactions || (wallet.transactionsError && !retry)) return;
+    pageRequestActive.current = true;
+    try {
+      await dispatch(fetchWalletTransactions({
+        offset: wallet.transactionsOffset,
+        append: wallet.transactionsOffset > 0,
+      })).unwrap();
+    } catch {
+      // Keep the loaded page visible; a later scroll can retry.
+    } finally {
+      pageRequestActive.current = false;
+    }
+  }, [dispatch, wallet.hasMoreTransactions, wallet.isLoadingTransactions, wallet.transactionsError, wallet.transactionsOffset]);
+
+  const refreshWallet = useCallback(() => {
+    void dispatch(fetchWallet());
+    pageRequestActive.current = true;
+    void dispatch(fetchWalletTransactions({ offset: 0, append: false }))
+      .finally(() => { pageRequestActive.current = false; });
+  }, [dispatch]);
+
+  const completeWalletDeposit = async (payment: NonNullable<typeof pendingPayment>): Promise<VerifyTopupResult> => {
+    setIsVerifyingPayment(true);
+    const result = await dispatch(verifyWalletTopup({
+      razorpayOrderId: payment.razorpay_order_id,
+      razorpayPaymentId: payment.razorpay_payment_id,
+      razorpaySignature: payment.razorpay_signature,
+    })).unwrap();
+
+    setPendingPayment(null);
+    await Promise.all([
+      dispatch(fetchWallet()),
+      dispatch(fetchWalletTransactions({ offset: 0, append: false })),
+    ]);
+    const params = {
+      amount: String(result.transaction.amount),
+      balance: String(result.balance),
+    };
+    setIsVerifyingPayment(false);
+    router.replace({ pathname: '/wallet/deposit-success', params });
+    return result;
+  };
+
+  const handleDeposit = async () => {
+    if (!user.isAuthenticated) {
+      setWalletAlert({
+        title: 'Sign in required',
+        message: 'Please log in to deposit funds.',
+        actions: [
+          { label: 'Cancel', style: 'secondary' },
+          { label: 'Log in', onPress: () => router.push('/auth'), style: 'primary' },
+        ],
+      });
+      return;
+    }
+
+    if (Platform.OS === 'web') {
+      setWalletAlert({
+        title: 'Unavailable',
+        message: 'Wallet deposits are available in the Android and iOS apps.',
+        actions: [{ label: 'OK', style: 'primary' }],
+      });
+      return;
+    }
+
+    const amount = Number(amountInput);
+    if (!/^\d+(\.\d{1,2})?$/.test(amountInput) || !Number.isFinite(amount) || amount < 100 || amount > 5000) {
+      setWalletAlert({
+        title: 'Invalid amount',
+        message: 'Enter an amount between ₹100 and ₹5,000.',
+        actions: [{ label: 'OK', style: 'primary' }],
+      });
+      return;
+    }
+
+    let paymentAuthorized = false;
+    try {
+      const order = await dispatch(initiateWalletTopup(amount)).unwrap();
+      if (typeof RazorpayCheckout?.open !== 'function') {
+        setWalletAlert({
+          title: 'Wallet payment unavailable',
+          message: 'Razorpay is not available in this app build. Rebuild the Android or iOS app with the native Razorpay module linked.',
+          actions: [{ label: 'OK', style: 'primary' }],
+        });
+        return;
+      }
+
+      const payment = await RazorpayCheckout.open({
+        key: order.keyId,
+        amount: String(order.razorpayOrder.amount),
+        currency: order.razorpayOrder.currency,
+        name: 'Dinesh Farms',
+        description: 'Wallet deposit',
+        order_id: order.razorpayOrder.id,
+        timeout: 300000,
+        prefill: {
+          name: [profile.firstName, profile.lastName].filter(Boolean).join(' ') || user.name,
+          email: profile.email || undefined,
+          contact: user.phone,
+        },
+        theme: { color: '#023E8A' },
+      });
+
+
+      paymentAuthorized = true;
+      setPendingPayment(payment);
+      try {
+        await completeWalletDeposit(payment);
+      } catch {
+        setIsVerifyingPayment(false);
+        setPendingPayment(null);
+        setWalletAlert({
+          title: 'Payment verification pending',
+          message: 'Razorpay completed the payment, but the wallet could not confirm it yet. Retry verification before making another deposit.',
+          actions: [{ label: 'OK', style: 'primary' }],
+        });
+      }
+    } catch (error) {
+      dispatch(cancelWalletTopup());
+      const paymentError = error as { code?: number; description?: string; message?: string };
+      if (paymentError?.code === 0) return;
+
+      if (paymentAuthorized) return;
+      const message = typeof error === 'string'
+        ? error
+        : paymentError?.description ?? paymentError?.message ?? 'Unable to complete the wallet deposit.';
+      setWalletAlert({
+        title: 'Deposit not completed',
+        message,
+        actions: [{ label: 'OK', style: 'primary' }],
+      });
+    }
+  };
+
+  const header = (
+    <View className="px-5 pb-3">
+      <Text className="mb-4 mt-2 text-[24px] font-raleway-bold text-[#111827]">My Wallet</Text>
+
+      <View className="rounded-[20px] bg-[#023E8A] p-5">
+        <View className="flex-row items-center gap-2">
+          <WalletIcon size={20} color="#fff" />
+          <Text className="text-[16px] font-raleway-bold text-[#DCE6FF]">Available Balance</Text>
+        </View>
+        <Text className="mt-2 text-[34px] font-bold text-white">₹{wallet.balance.toFixed(2)}</Text>
+        <Text className="mt-2 text-[13px] font-raleway-semibold text-[#DCE6FF]">Use wallet for faster checkout and cashback rewards</Text>
+      </View>
+
+      <Text className="mb-2.5 mt-6 text-[16px] font-raleway-bold text-[#111827]">Add Money</Text>
+      <View className="flex-row flex-wrap gap-2">
+        {quickAmounts.map((amount) => (
+          <Pressable
+            key={amount}
+            accessibilityRole="button"
+            accessibilityState={{ selected: amountInput === String(amount) }}
+            className={`min-w-[70px] flex-1 items-center rounded-full border bg-white py-3.5 ${amountInput === String(amount) ? 'border-[#023E8A] bg-[#EEF3FF]' : 'border-[#E2E8F0]'}`}
+            onPress={() => setAmountInput(String(amount))}
           >
-            <View
-              className={`h-9 w-9 items-center justify-center rounded-[10px] ${
-                t.direction === 'credit'
-                  ? 'bg-[#DCFCE7]'
-                  : 'bg-[#FEE2E2]'
-              }`}
-            >
-              {t.direction === 'credit' ? (
-                <ArrowDownLeft
-                  size={16}
-                  color={colors.green}
-                />
-              ) : (
-                <ArrowUpRight
-                  size={16}
-                  color={colors.red}
-                />
-              )}
-            </View>
-
-            <View className="flex-1">
-              <Text className="text-[14px] font-bold text-[#111827]">
-                {t.title}
-              </Text>
-
-              <Text className="mt-0.5 text-[12px] text-[#64748B]">
-                {t.timestamp}
-              </Text>
-            </View>
-
-            <Text
-              className={`text-[14px] font-bold ${
-                t.direction === 'credit'
-                  ? 'text-[#22C55E]'
-                  : 'text-[#EF4444]'
-              }`}
-            >
-              {t.direction === 'credit' ? '+' : '-'}₹{t.amount}
+            <Text className={`text-[15px] font-bold ${amountInput === String(amount) ? 'text-[#023E8A]' : 'text-[#111827]'}`}>
+              ₹{amount}
             </Text>
-          </View>
+          </Pressable>
         ))}
-      </ScrollView>
+      </View>
+
+      <TextInput
+        accessibilityLabel="Deposit amount"
+        className="mt-3 rounded-[20px] h-[50px] border border-[#E2E8F0] bg-white px-6 py-3.5 text-[18px] text-[#111827]"
+        value={amountInput}
+        onChangeText={setAmountInput}
+        keyboardType="decimal-pad"
+        placeholder="Enter amount"
+        placeholderTextColor="#94A3B8"
+        maxLength={8}
+      />
+
+      <View className="mt-5">
+        <PrimaryButton
+          label={pendingPayment ? 'Payment Verification Required' : wallet.isDepositing ? 'Processing Deposit…' : `Add ₹${Number(amountInput) || 0} to Wallet`}
+          onPress={() => { void handleDeposit(); }}
+          disabled={wallet.isDepositing || pendingPayment !== null}
+        />
+      </View>
+
+      {pendingPayment ? (
+        <Pressable
+          className="mt-3 items-center rounded-[12px] border border-[#F59E0B] bg-[#FFFBEB] px-4 py-3"
+          disabled={wallet.isDepositing}
+          onPress={() => {
+            void completeWalletDeposit(pendingPayment).catch(() => {
+              dispatch(cancelWalletTopup());
+              setWalletAlert({
+                title: 'Verification still pending',
+                message: 'Please retry shortly. Do not make another deposit for this payment.',
+                actions: [{ label: 'OK', style: 'primary' }],
+              });
+            });
+          }}
+        >
+          <Text className="text-[13px] font-raleway-bold text-[#92400E]">
+            {wallet.isDepositing ? 'Verifying payment…' : 'Retry payment verification'}
+          </Text>
+        </Pressable>
+      ) : null}
+
+      <View className="mt-7">
+        <SectionTitle title="Transaction History" />
+      </View>
+    </View>
+  );
+
+  return (
+    <View className="flex-1 bg-[#F7F9FC]">
+      <Pressable className="ml-4 mt-2" onPress={() => router.back()} hitSlop={12}>
+        <ArrowLeft size={28} color="#111827" />
+      </Pressable>
+      <FlatList
+        data={wallet.transactions}
+        keyExtractor={(transaction) => transaction.id}
+        renderItem={({ item }) => <TransactionRow transaction={item} />}
+        ListHeaderComponent={header}
+        ListEmptyComponent={wallet.isLoadingTransactions ? null : (
+          <Text className="px-5 py-8 text-center text-[14px] text-[#64748B]">No transactions yet.</Text>
+        )}
+        ListFooterComponent={wallet.isLoadingTransactions ? (
+          <ActivityIndicator className="py-5" color={colors.primary} />
+        ) : wallet.transactionsError ? (
+          <Pressable className="items-center py-4" onPress={() => { void loadMoreTransactions(true); }}>
+            <Text className="text-[13px] font-bold text-[#B91C1C]">Couldn’t load transactions. Tap to retry.</Text>
+          </Pressable>
+        ) : wallet.hasMoreTransactions && wallet.transactions.length > 0 ? (
+          <Pressable className="items-center py-4" onPress={() => { void loadMoreTransactions(); }}>
+            <Text className="text-[13px] font-bold text-[#023E8A]">Load more</Text>
+          </Pressable>
+        ) : null}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        onEndReached={() => { void loadMoreTransactions(); }}
+        onEndReachedThreshold={0.35}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refreshWallet} tintColor={colors.primary} />}
+        keyboardShouldPersistTaps="handled"
+      />
+      <VerificationStatusModal isVisible={isVerifyingPayment} isSuccess={false} />
+      <WalletAlertModal alert={walletAlert} isVisible={walletAlert !== null} onClose={() => setWalletAlert(null)} />
     </View>
   );
 }

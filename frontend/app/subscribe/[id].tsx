@@ -8,21 +8,6 @@ import { useFreshStore } from '@/store/useFreshStore';
 const dayShortNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const dayLongNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const productImages: Record<string, any> = {
-  'A2BufalloMilk-removebg-preview.png': require('@/assets/images/products/A2BufalloMilk-removebg-preview.png'),
-  'CowMilk-removebg-preview.png': require('@/assets/images/products/CowMilk-removebg-preview.png'),
-  'TonedMilk-removebg-preview.png': require('@/assets/images/products/TonedMilk-removebg-preview.png'),
-  'SkimMilk-removebg-preview.png': require('@/assets/images/products/SkimMilk-removebg-preview.png'),
-  'HighProteinMilk-removebg-preview.png': require('@/assets/images/products/HighProteinMilk-removebg-preview.png'),
-  'malaipanner-removebg-preview.png': require('@/assets/images/products/malaipanner-removebg-preview.png'),
-  'Curd-removebg-preview.png': require('@/assets/images/products/Curd-removebg-preview.png'),
-  'CowCurd-removebg-preview.png': require('@/assets/images/products/CowCurd-removebg-preview.png'),
-  'buffaloghee-removebg-preview.png': require('@/assets/images/products/buffaloghee-removebg-preview.png'),
-  'cowghee-removebg-preview.png': require('@/assets/images/products/cowghee-removebg-preview.png'),
-  'buffalobutter-removebg-preview.png': require('@/assets/images/products/buffalobutter-removebg-preview.png'),
-  'cowbutter-removebg-preview.png': require('@/assets/images/products/cowbutter-removebg-preview.png'),
-};
-
 function formatDisplayDate(date: Date) {
   return `${date.getDate()}-${date.getMonth() + 1}-${date.getFullYear()}`;
 }
@@ -201,8 +186,8 @@ export default function SubscribeScreen() {
             <View className="h-[72px] w-[72px]  items-center justify-center overflow-hidden ">
               <Image
                 source={
-                  product.imageFile
-                    ? productImages[product.imageFile] ?? require('@/assets/images/products/CowMilk-removebg-preview.png')
+                  product.mainImgNobg
+                    ? { uri: product.mainImgNobg }
                     : require('@/assets/images/products/CowMilk-removebg-preview.png')
                 }
                 className="h-[64px] w-[64px]"
