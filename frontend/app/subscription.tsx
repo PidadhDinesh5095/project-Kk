@@ -1,6 +1,7 @@
 
-import { router } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import {
   ArrowLeft,
   Calendar,
@@ -19,34 +20,85 @@ import {
 } from '@/components/FreshComponents';
 import { useFreshStore } from '@/store/useFreshStore';
 import { formatDate } from '@/lib/cutoff';
+import { Address, Product } from '@/types/fresh';
+import { SubscriptionSkeleton } from '@/components/SubscriptionSkeleton';
 
 export default function SubscriptionScreen() {
   const {
     subscription,
+    subscriptionIsLoading,
+    subscriptionHasLoaded,
+    subscriptionError,
+    subscriptionIsUpdating,
     addresses,
-    updateSubscription,
+    fetchSubscriptions,
+    resumeSubscription,
     products,
   } = useFreshStore();
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!subscriptionHasLoaded && !subscriptionIsLoading) void fetchSubscriptions();
+    }, [fetchSubscriptions, subscriptionHasLoaded, subscriptionIsLoading]),
+  );
+
+  if (subscriptionIsLoading || !subscriptionHasLoaded) {
+    return (
+      <View className="flex-1 bg-[#F7F9FC]">
+        <Pressable className="ml-4 mt-2" onPress={() => router.back()} hitSlop={12}>
+          <ArrowLeft size={28} color="#111827" />
+        </Pressable>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}>
+          <Text className="mb-4 mt-2 font-raleway-bold text-[22px] text-[#111827]">My Subscription</Text>
+          <SubscriptionSkeleton variant="detail" />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (!subscription) {
+    return (
+      <View className="flex-1 items-center justify-center bg-[#F7F9FC] px-6">
+        <Text className="font-raleway-bold text-[16px] text-[#111827]">Subscription not found</Text>
+        <Pressable className="mt-4" onPress={() => router.back()}>
+          <Text className="font-raleway-bold text-[#023E8A]">Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   const product = products.find(
-    (p) => p.id === subscription.productId
-  )!;
+    (productItem: Product) => productItem.id === subscription.productId
+  );
 
   const addr = addresses.find(
-    (a) => a.id === subscription.deliveryAddressId
+    (addressItem: Address) => addressItem.id === subscription.deliveryAddressId
   ) ?? addresses[0];
+  const nextDeliveryDate = subscription.nextDeliveryDate ?? subscription.startDate ?? new Date().toISOString();
+  const slots = (subscription.dailySlots ?? [])
+    .map((slot) => slot === 'MORNING' ? 'Morning' : 'Evening');
+  const timeSlot = slots.join(' + ') || subscription.timeSlot || 'Morning';
+  const productImage = subscription.productImage ?? product?.mainImgNobg ?? product?.images?.find(Boolean);
+  const quantitySummary = subscription.frequency === 'Alternate' && subscription.alternateConfig
+    ? `${subscription.alternateConfig.startDateQuantity} on first day, ${subscription.alternateConfig.succeedingDayQuantity} on alternate days`
+    : `${subscription.dailyQuantity ?? subscription.quantityPerDelivery ?? 1} per delivery`;
+  const dayNames: Record<string, string> = {
+    SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday',
+    TH: 'Thursday', FR: 'Friday', SA: 'Saturday',
+  };
+  const customSchedule = subscription.customConfig?.selectedDays?.map((day) => {
+    const dayQuantity = subscription.customConfig?.quantityPerDay?.[day] ?? 1;
+    return `${dayNames[day] ?? day}: ${dayQuantity}`;
+  }).join(' · ');
 
   return (
-    <View className="flex-1 bg-[#F7F9FC]">
-      <Pressable
-        className="ml-4 mt-2"
-        onPress={() => router.back()}
-        hitSlop={12}
-      >
-        <Text className="text-[32px] leading-[30px] text-[#111827]">
+    <View className="flex-1 bg-white ">
+      <View className="flex-row items-center px-4 pt-2">
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
           <ArrowLeft size={28} color="#111827" />
-        </Text>
-      </Pressable>
+        </Pressable>
+        <Text className="ml-3 font-raleway-bold text-[22px] text-[#111827]">My Subscription</Text>
+      </View>
 
       <ScrollView
         contentContainerStyle={{
@@ -54,46 +106,34 @@ export default function SubscriptionScreen() {
           paddingBottom: 100,
         }}
       >
-        <Text className="mb-4 mt-2 text-[22px] font-bold text-[#111827]">
-          My Subscription
-        </Text>
-
-        <View className="rounded-2xl border border-[#E2E8F0] bg-white p-[14px]">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center gap-1 rounded-[10px] bg-[#023E8A] px-2 py-1">
-              <Repeat size={12} color="#fff" />
-
-              <Text className="text-[10px] font-bold text-white">
-                Subscription
+        <View className="mt-4 rounded-[14px] border border-[#E2E8F0] bg-white p-4">
+          <View className="flex-row items-center justify-between gap-4">
+            {productImage ? (
+              <Image
+                source={{ uri: productImage }}
+                style={{ width: 78, height: 78, borderRadius: 10, }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                style={{ width: 78, height: 78, borderRadius: 10 }}
+                className="items-center justify-center "
+              >
+                <Repeat size={28} color={colors.primary} />
+              </View>
+            )}
+            <View className="min-w-0 flex-1">
+              <StatusPill label={subscription.status} />
+              <Text className="mt-2 font-raleway-bold text-[18px] text-[#111827]">
+                {product?.name ?? subscription.productName ?? 'Product'}
               </Text>
-            </View>
-
-            <StatusPill label={subscription.status} />
-          </View>
-
-          <Text className="mt-2.5 text-[18px] font-bold text-[#111827]">
-            {product.name}
-          </Text>
-
-          <Text className="mt-0.5 text-[13px] text-[#64748B]">
-            {subscription.planTier} · {subscription.quantityPerDelivery} ×{' '}
-            {product.size} · {subscription.frequency}
-          </Text>
-
-          <View className="mt-3 flex-row gap-4 border-t border-[#F1F5F9] pt-3">
-            <View className="flex-row items-center gap-[5px]">
-              <Clock size={14} color={colors.muted} />
-
-              <Text className="text-[12px] font-bold text-[#111827]">
-                {subscription.timeSlot} delivery
-              </Text>
-            </View>
-
-            <View className="flex-row items-center gap-[5px]">
-              <Calendar size={14} color={colors.muted} />
-
-              <Text className="text-[12px] font-bold text-[#111827]">
-                Next: {formatDate(subscription.nextDeliveryDate)}
+              {!!product?.size && (
+                <Text className="mt-1 font-raleway-medium text-[13px] text-[#64748B]">
+                  {product.size}
+                </Text>
+              )}
+              <Text className="mt-2 font-raleway-semibold text-[13px] text-[#023E8A]">
+                {subscription.frequency} subscription
               </Text>
             </View>
           </View>
@@ -106,11 +146,11 @@ export default function SubscriptionScreen() {
             <MapPin size={16} color={colors.primary} />
 
             <View className="flex-1">
-              <Text className="text-[11px] text-[#64748B]">
+              <Text className="font-raleway-medium text-[12px] text-[#64748B]">
                 Address
               </Text>
 
-              <Text className="mt-0.5 text-[14px] font-bold text-[#111827]">
+              <Text className="mt-0.5 font-raleway-bold text-[14px] text-[#111827]">
                 {addr ? `${addr.label} · ${addr.line1}, ${addr.city}` : 'Add a delivery address'}
               </Text>
             </View>
@@ -122,13 +162,21 @@ export default function SubscriptionScreen() {
             <Repeat size={16} color={colors.primary} />
 
             <View className="flex-1">
-              <Text className="text-[11px] text-[#64748B]">
-                Plan
+              <Text className="font-raleway-medium text-[11px] text-[#64748B]">
+                Schedule
               </Text>
 
-              <Text className="mt-0.5 text-[14px] font-bold text-[#111827]">
-                {subscription.planTier} · {subscription.frequency}
+              <Text className="mt-0.5 font-raleway-bold text-[14px] text-[#111827]">
+                {subscription.frequency}{subscription.planTier ? ` · ${subscription.planTier}` : ''}
               </Text>
+              <Text className="mt-1 font-raleway-medium text-[12px] text-black">
+                {quantitySummary}
+              </Text>
+              {subscription.frequency === 'Custom' && !!customSchedule && (
+                <Text className="mt-1 font-raleway-bold text-[12px] text-[#64748B]">
+                  {customSchedule}
+                </Text>
+              )}
             </View>
           </View>
 
@@ -138,12 +186,24 @@ export default function SubscriptionScreen() {
             <Clock size={16} color={colors.primary} />
 
             <View className="flex-1">
-              <Text className="text-[11px] text-[#64748B]">
-                Time Slot
+              <Text className="font-raleway-medium text-[11px] text-[#64748B]">
+                Delivery slots
               </Text>
 
-              <Text className="mt-0.5 text-[14px] font-bold text-[#111827]">
-                {subscription.timeSlot}
+              <Text className="mt-0.5 font-raleway-bold text-[14px] text-[#111827]">
+                {timeSlot}
+              </Text>
+            </View>
+          </View>
+
+          <View className="my-3 h-px bg-[#F1F5F9]" />
+
+          <View className="flex-row items-center gap-3">
+            <Calendar size={16} color={colors.primary} />
+            <View className="flex-1">
+              <Text className="font-raleway-medium text-[11px] text-[#64748B]">Next delivery</Text>
+              <Text className="mt-0.5 font-raleway-bold text-[14px] text-[#111827]">
+                {formatDate(nextDeliveryDate)}
               </Text>
             </View>
           </View>
@@ -160,7 +220,7 @@ export default function SubscriptionScreen() {
               <Pause size={18} color={colors.amber} />
             </View>
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="font-raleway-bold text-[14px] text-[#111827]">
               Pause Subscription
             </Text>
           </View>
@@ -177,7 +237,7 @@ export default function SubscriptionScreen() {
               <SkipForward size={18} color={colors.primary} />
             </View>
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="font-raleway-bold text-[14px] text-[#111827]">
               Skip a Delivery
             </Text>
           </View>
@@ -194,7 +254,7 @@ export default function SubscriptionScreen() {
               <Calendar size={18} color={colors.primary} />
             </View>
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="font-raleway-bold text-[14px] text-[#111827]">
               Change Schedule
             </Text>
           </View>
@@ -203,22 +263,34 @@ export default function SubscriptionScreen() {
         </Pressable>
 
         <View className="mt-6">
+          {subscriptionError && (
+            <Text className="mb-3 text-center font-raleway-semibold text-[13px] text-[#B91C1C]">
+              {subscriptionError}
+            </Text>
+          )}
           {subscription.status === 'Active' ||
           subscription.status === 'Paused' ? (
             <Pressable
               className="items-center py-3.5"
               onPress={() => router.push('/subscription/cancel')}
             >
-              <Text className="text-[14px] font-bold text-[#EF4444] underline">
+              <Text className="font-raleway-bold text-[14px] text-[#EF4444] underline">
                 Cancel Subscription
               </Text>
             </Pressable>
           ) : (
+            <Text className="text-center font-raleway-medium text-[13px] text-[#64748B]">This subscription is cancelled.</Text>
+          )}
+          {subscription.status === 'Paused' && (
             <PrimaryButton
-              label="Resume Subscription"
-              onPress={() => {
-                updateSubscription({ status: 'Active' });
-                router.back();
+              label={subscriptionIsUpdating ? 'Resuming...' : 'Resume Subscription'}
+              disabled={subscriptionIsUpdating}
+              onPress={async () => {
+                try {
+                  await resumeSubscription(subscription.id).unwrap();
+                } catch {
+                  // The error state above keeps the failed operation visible.
+                }
               }}
             />
           )}

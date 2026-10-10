@@ -57,21 +57,31 @@ const schemas = {
     ),
   }),
 
-  topup: Joi.object({ amount: Joi.number().min(10).max(50000).required() }),
+  topup: Joi.object({ amount: Joi.number().min(100).max(5000).precision(2).required() }),
+  withdraw: Joi.object({ amount: Joi.number().min(100).max(2000).precision(2).required() }),
   verifyTopup: Joi.object({
     razorpayOrderId: Joi.string().required(),
     razorpayPaymentId: Joi.string().required(),
     razorpaySignature: Joi.string().required(),
-    amount: Joi.number().min(10).max(50000).required(),
   }),
 
   createOrder: Joi.object({
     productId: uuid.required(),
     addressId: uuid.required(),
     quantity: Joi.number().integer().min(1).max(50).required(),
-    deliveryDate: Joi.date().iso().min('now').required(),
-    slot: slot.required(),
-  }),
+    deliveryDate: Joi.date().iso().custom((date, helpers) => {
+      const requestedDate = date.toISOString().slice(0, 10);
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      return requestedDate < today ? helpers.error('date.min', { limit: today }) : date;
+    }).required(),
+    slot,
+    slots: Joi.array().items(slot).min(1).max(2).unique(),
+  }).xor('slot', 'slots'),
 
   // Three shapes, one per frequency, matching the three subscription screens.
   createSubscription: Joi.object({
@@ -80,23 +90,16 @@ const schemas = {
     frequency: Joi.string().valid('DAILY', 'ALTERNATE', 'CUSTOM').required(),
     startDate: Joi.date().iso().min('now').required(),
     endDate: Joi.date().iso().greater(Joi.ref('startDate')).allow(null),
+    dailySlots: Joi.array().items(slot).min(1).max(2).unique().required(),
 
     dailyQuantity: Joi.when('frequency', {
       is: 'DAILY',
       then: Joi.number().integer().min(1).max(50).required(),
       otherwise: Joi.forbidden(),
     }),
-    // Daily has no slot picker on that screen (both shown disabled) — optional,
-    // defaults to MORNING server-side if omitted.
-    dailySlot: Joi.when('frequency', {
-      is: 'DAILY',
-      then: slot.optional(),
-      otherwise: Joi.forbidden(),
-    }),
     alternateConfig: Joi.when('frequency', {
       is: 'ALTERNATE',
       then: Joi.object({
-        slots: Joi.array().items(slot).min(1).required(),
         startDateQuantity: Joi.number().integer().min(1).max(50).required(),
         succeedingDayQuantity: Joi.number().integer().min(1).max(50).required(),
       }).required(),
@@ -105,7 +108,6 @@ const schemas = {
     customConfig: Joi.when('frequency', {
       is: 'CUSTOM',
       then: Joi.object({
-        slots: Joi.array().items(slot).min(1).required(),
         selectedDays: Joi.array().items(Joi.string().valid('SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA')).min(1).required(),
         quantityPerDay: Joi.object().pattern(
           Joi.string().valid('SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'),
@@ -116,12 +118,28 @@ const schemas = {
     }),
   }),
   pauseSubscription: Joi.object({
-    startDate: Joi.date().iso().min('now').required(),
-    endDate: Joi.date().iso().min(Joi.ref('startDate')).required(),
     reason: Joi.string().max(200).allow('', null),
   }),
   skipDates: Joi.object({
-    dates: Joi.array().items(Joi.date().iso().min('now')).min(1).required(),
+    dates: Joi.array().items(Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).custom((value, helpers) => {
+      const match = /^\d{4}-\d{2}-\d{2}$/.exec(value);
+      if (!match) return helpers.error('date.format');
+
+      const [year, month, day] = match[0].split('-').map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      if (!Number.isFinite(parsed.getTime()) || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+        return helpers.error('date.format');
+      }
+
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      if (value < today) return helpers.error('date.min', { limit: today });
+      return value;
+    })).min(1).required(),
   }),
 
   deviceToken: Joi.object({ deviceToken: Joi.string().required() }),

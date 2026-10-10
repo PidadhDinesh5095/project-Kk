@@ -10,5 +10,7 @@ export function nextDeliveryDate(date = new Date()): string {
 }
 
 export function formatDate(value: string): string {
-  return new Date(`${value}T12:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  const date = new Date(year, month - 1, day, 12);
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }

@@ -154,39 +154,88 @@ CREATE TABLE subscriptions (
   product_id        UUID NOT NULL REFERENCES products(id),
   frequency         TEXT NOT NULL CHECK (frequency IN ('DAILY','ALTERNATE','CUSTOM')),
 
--- in subscriptions table:
   daily_quantity    INTEGER,               -- used when frequency = DAILY
-  daily_slot        TEXT DEFAULT 'MORNING' CHECK (daily_slot IN ('MORNING','EVENING')),
-                                             -- Daily has no slot picker in the app (both shown disabled on
-                                             -- that screen) — delivered every day on this single default slot.
-  alternate_config  JSONB,                  -- { slots: ["EVENING"], startDateQuantity, succeedingDayQuantity }
-  custom_config     JSONB,                  -- { slots: [...], selectedDays: ["MO","TU",...], quantityPerDay: {"MO":2,...} }
+  daily_slots       TEXT[] NOT NULL DEFAULT ARRAY['MORNING']::TEXT[]
+                    CHECK (cardinality(daily_slots) > 0 AND daily_slots <@ ARRAY['MORNING','EVENING']::TEXT[]),
+                                             -- Sole source of slots for all frequencies.
+  alternate_config  JSONB,                  -- { startDateQuantity, succeedingDayQuantity }
+  custom_config     JSONB,                  -- { selectedDays: ["MO","TU",...], quantityPerDay: {"MO":2,...} }
 
   start_date        DATE NOT NULL,
   end_date          DATE,                   -- null = runs until cancelled
   paused_ranges     JSONB NOT NULL DEFAULT '[]',  -- [{ startDate, endDate, reason }]
   skipped_dates     DATE[] NOT NULL DEFAULT '{}',
 
-  status            TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','CANCELLED')),
+  status            TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','PAUSED','CANCELLED')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE subscriptions
+  ADD COLUMN IF NOT EXISTS daily_slots TEXT[] NOT NULL DEFAULT ARRAY['MORNING']::TEXT[]
+  CHECK (cardinality(daily_slots) > 0 AND daily_slots <@ ARRAY['MORNING','EVENING']::TEXT[]);
+
+UPDATE subscriptions
+SET daily_slots = ARRAY(SELECT jsonb_array_elements_text(alternate_config->'slots'))
+WHERE frequency = 'ALTERNATE'
+  AND jsonb_typeof(alternate_config->'slots') = 'array'
+  AND jsonb_array_length(alternate_config->'slots') > 0;
+
+UPDATE subscriptions
+SET daily_slots = ARRAY(SELECT jsonb_array_elements_text(custom_config->'slots'))
+WHERE frequency = 'CUSTOM'
+  AND jsonb_typeof(custom_config->'slots') = 'array'
+  AND jsonb_array_length(custom_config->'slots') > 0;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'subscriptions'
+      AND column_name = 'daily_slot'
+  ) THEN
+    EXECUTE 'UPDATE subscriptions SET daily_slots = ARRAY[COALESCE(daily_slot, ''MORNING'')] WHERE frequency = ''DAILY''';
+    ALTER TABLE subscriptions DROP COLUMN daily_slot;
+  END IF;
+END $$;
+
+UPDATE subscriptions SET alternate_config = alternate_config - 'slots'
+WHERE frequency = 'ALTERNATE' AND alternate_config ? 'slots';
+UPDATE subscriptions SET custom_config = custom_config - 'slots'
+WHERE frequency = 'CUSTOM' AND custom_config ? 'slots';
 CREATE INDEX idx_subscriptions_user ON subscriptions (user_id, status);
 
 ALTER TABLE orders
   ADD CONSTRAINT fk_orders_subscription FOREIGN KEY (subscription_id) REFERENCES subscriptions(id);
 
--- ---------- Wallet (ledger-based — balance is always derived, never stored bare) ----------
-CREATE TABLE wallet_transactions (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id        UUID NOT NULL REFERENCES users(id),
-  type           TEXT NOT NULL CHECK (type IN ('TOPUP','ORDER_DEBIT','REFUND','CASHBACK')),
-  amount         NUMERIC(10,2) NOT NULL,     -- negative for debits, positive for credits
-  balance_after  NUMERIC(10,2) NOT NULL,
-  reference_id   TEXT,
-  status         TEXT NOT NULL DEFAULT 'SUCCESS' CHECK (status IN ('PENDING','SUCCESS','FAILED')),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+-- ---------- Wallet ----------
+CREATE TABLE wallets (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  balance             NUMERIC(10,2) NOT NULL DEFAULT 0,
+  total_deposit      NUMERIC(10,2) NOT NULL DEFAULT 0,
+  status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','blocked')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_wallet_txn_user ON wallet_transactions (user_id, created_at DESC);
+CREATE INDEX idx_wallets_user_id ON wallets (user_id);
+
+
+-- ---------- Wallet transactions ----------
+CREATE TABLE wallet_transactions (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  wallet_id          UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+  transaction_id     TEXT NOT NULL UNIQUE,
+  type               TEXT NOT NULL CHECK (type IN ('credit', 'debit', 'debit-ipo')),
+  amount             NUMERIC(10,2) NOT NULL CHECK (amount > 0),
+  balance_after      NUMERIC(10,2) NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'failed')),
+  reference          TEXT UNIQUE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_wallet_txn_wallet_created ON wallet_transactions (wallet_id, created_at DESC);
+CREATE INDEX idx_wallet_txn_user_created ON wallet_transactions (user_id, created_at DESC);
 
 ALTER TABLE orders
   ADD CONSTRAINT fk_orders_wallet_txn FOREIGN KEY (wallet_transaction_id) REFERENCES wallet_transactions(id);

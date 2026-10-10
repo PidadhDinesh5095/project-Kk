@@ -46,7 +46,7 @@ export default function ProductsScreen() {
   };
 
   return (
-    <View className="flex-1 pt-2 ">
+    <View className="flex-1 pt-2 bg-white">
 
       {/* Top Bar */}
       <View className="flex-row items-center justify-between px-5">

@@ -199,8 +199,7 @@ export default function ManageSubscriptionScreen() {
           <Clock size={14} color={colors.primary} />
 
           <Text className="flex-1 text-[12px] font-bold text-[#023E8A]">
-            Changes apply from next delivery ·{' '}
-            {formatDate(subscription.nextDeliveryDate)}
+            Changes apply from the next active delivery update at 10:00 PM
           </Text>
         </View>
 
@@ -244,8 +243,7 @@ export default function ManageSubscriptionScreen() {
 
             {/* Body */}
             <Text className="mt-2 text-center text-[14px] leading-5 text-[#64748B]">
-              Your subscription schedule has been updated. Changes
-              apply from the next delivery.
+              Your subscription schedule has been updated. The next active update will happen at 10:00 PM.
             </Text>
 
             {/* Back Home */}

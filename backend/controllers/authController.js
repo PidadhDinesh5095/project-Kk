@@ -42,6 +42,11 @@ const verifyOtp = asyncHandler(async (req, res) => {
     );
     user = insertResult.rows[0];
     isNewUser = true;
+
+    await pool.query(
+      'INSERT INTO wallets (user_id) VALUES ($1)',
+      [user.id]
+    );
   } else {
     const { rows: addressRows } = await pool.query(
       'SELECT EXISTS (SELECT 1 FROM addresses WHERE user_id = $1) AS has_address',

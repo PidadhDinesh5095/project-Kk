@@ -16,7 +16,8 @@ import asyncHandler from '../utils/asyncHandler.js';
 // Order" screen exactly. Debits the wallet and creates the order in one real
 // Postgres transaction — either both happen or neither does.
 const createOrder = asyncHandler(async (req, res) => {
-  const { productId, addressId, quantity, deliveryDate, slot } = req.body;
+  const { productId, addressId, quantity, deliveryDate } = req.body;
+  const slots = req.body.slots ?? [req.body.slot];
 
   const [{ rows: productRows }, { rows: addressRows }] = await Promise.all([
     pool.query('SELECT * FROM products WHERE id = $1', [productId]),
@@ -27,51 +28,64 @@ const createOrder = asyncHandler(async (req, res) => {
   if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
   if (!address) return res.status(404).json({ success: false, message: 'Address not found' });
 
-  const totalAmount = Number((product.price * quantity).toFixed(2));
+  const orderAmount = Number((product.price * quantity).toFixed(2));
+  const totalAmount = Number((orderAmount * slots.length).toFixed(2));
 
   const client = await pool.connect();
-  let order;
+  let orders;
+  let walletTransaction;
   try {
     await client.query('BEGIN');
 
-    const walletTxn = await walletService.debit(req.user.id, totalAmount, 'ORDER_DEBIT', null, client);
-    const orderId = await generateOrderId(product.slug, deliveryDate);
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [req.user.id]);
+    walletTransaction = await walletService.debit(req.user.id, totalAmount, 'debit', null, client);
+    orders = [];
 
-    const { rows } = await client.query(
-      `INSERT INTO orders
-        (order_id, user_id, address_id, product_id, quantity, delivery_date, slot,
-         price_at_order, total_amount, wallet_transaction_id, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ONE_TIME') RETURNING *`,
-      [orderId, req.user.id, addressId, productId, quantity, deliveryDate, slot, product.price, totalAmount, walletTxn.id]
-    );
-    order = rows[0];
+    for (const selectedSlot of slots) {
+      const orderId = await generateOrderId(product.slug, deliveryDate);
+      const { rows } = await client.query(
+        `INSERT INTO orders
+          (order_id, user_id, address_id, product_id, quantity, delivery_date, slot,
+           price_at_order, total_amount, wallet_transaction_id, source)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ONE_TIME') RETURNING *`,
+        [orderId, req.user.id, addressId, productId, quantity, deliveryDate, selectedSlot, product.price, orderAmount, walletTransaction.id]
+      );
+      orders.push(rows[0]);
+    }
 
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');
+    if (e.message === 'INSUFFICIENT_BALANCE') {
+      e.message = 'Insufficient wallet balance to place this order.';
+    }
     throw e;
   } finally {
     client.release();
   }
 
-  await publish(topics.ORDER_CONFIRMED, {
-    userId: req.user.id,
-    orderId: order.order_id,
-    productName: product.name,
-    totalAmount,
-    deliveryDate,
-  });
-  await publish(topics.INVOICE_GENERATE, { orderId: order.order_id });
+  // for (const order of orders) {
+  //   await publish(topics.ORDER_CONFIRMED, {
+  //     userId: req.user.id,
+  //     orderId: order.order_id,
+  //     productName: product.name,
+  //     totalAmount: orderAmount,
+  //     deliveryDate,
+  //   });
+  //   await publish(topics.INVOICE_GENERATE, { orderId: order.order_id });
+  //   emitToUser(req.user.id, 'order:created', { orderId: order.order_id, status: order.status });
+  //   await sendNotification(req.user.id, {
+  //     type: 'ORDER_CONFIRMED',
+  //     title: 'Order Confirmed',
+  //     body: `${product.name} x ${quantity} scheduled for ${new Date(deliveryDate).toDateString()} (${order.slot.toLowerCase()})`,
+  //     referenceId: order.order_id,
+  //   });3
+  // }
 
-  emitToUser(req.user.id, 'order:created', { orderId: order.order_id, status: order.status });
-  await sendNotification(req.user.id, {
-    type: 'ORDER_CONFIRMED',
-    title: 'Order Confirmed',
-    body: `${product.name} x ${quantity} scheduled for ${new Date(deliveryDate).toDateString()}`,
-    referenceId: order.order_id,
-  });
-
-  return ApiResponse.success(res, order, 201, 'Order placed');
+  const responseData = req.body.slots
+    ? { orders, walletTransaction, balance: walletTransaction.balance_after }
+    : orders[0];
+  return ApiResponse.success(res, responseData, 201, 'Order placed');
 });
 
 // GET /orders?date=
@@ -139,7 +153,7 @@ const cancelOrder = asyncHandler(async (req, res) => {
   }
 
   await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['CANCELLED', order.id]);
-  await walletService.credit(req.user.id, order.total_amount, 'REFUND', order.order_id);
+  await walletService.credit(req.user.id, order.total_amount, 'credit', order.order_id);
 
   emitToUser(req.user.id, 'order:cancelled', { orderId: order.order_id });
   return ApiResponse.success(res, { ...order, status: 'CANCELLED' }, 200, 'Order cancelled and refunded to wallet');

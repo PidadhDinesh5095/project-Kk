@@ -1,9 +1,10 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,9 +18,10 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Check,
+  X,
   Wallet as WalletIcon,
 } from 'lucide-react-native';
-import { colors, PrimaryButton, SectionTitle } from '@/components/FreshComponents';
+import { colors, SectionTitle } from '@/components/FreshComponents';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   cancelWalletTopup,
@@ -27,6 +29,8 @@ import {
   fetchWalletTransactions,
   initiateWalletTopup,
   verifyWalletTopup,
+  withdrawWallet,
+  resetWithdrawalError,
 } from '@/store/slices/walletSlice';
 import type { VerifyTopupResult } from '@/store/slices/walletSlice';
 import type { WalletTransaction } from '@/types/fresh';
@@ -37,6 +41,11 @@ type WalletAlert = {
   title: string;
   message: string;
   actions: Array<{ label: string; onPress?: () => void; style?: 'primary' | 'secondary' | 'danger' }>;
+};
+
+type WithdrawalFeedback = {
+  status: 'success' | 'error';
+  message: string;
 };
 
 const transactionStyles = {
@@ -118,18 +127,19 @@ function VerificationStatusModal({
   if (!isVisible) return null;
 
   return (
-    <View className="absolute inset-0 z-50 items-center justify-center bg-[#0F172A]/60 px-8">
+    <Modal visible={isVisible} animationType="fade" onRequestClose={() => {}}>
+      <View className="flex-1 items-center justify-center bg-white px-8">
       <Animated.View
-        className="w-full items-center rounded-[32px] bg-white p-8 shadow-2xl"
+        className="w-full items-center rounded-[32px] bg-white p-8 "
         style={{ opacity: opacityAnim, transform: [{ scale: scaleAnim }] }}
       >
         <View className="relative mb-6 h-28 w-28 items-center justify-center">
           <Animated.View
-            className="absolute h-28 w-28 rounded-full border-4 border-[#C7D9FF]"
+            className="absolute h-28 w-28 rounded-full "
             style={{ transform: [{ scale: pulseAnim }] }}
           />
           <Animated.View
-            className="absolute h-24 w-24 items-center justify-center rounded-full border-[6px] border-white"
+            className="absolute h-24 w-24 items-center justify-center rounded-full "
             style={{
               backgroundColor: checkStyles.backgroundColor,
               borderColor: isSuccess ? '#86EFAC' : '#C7D9FF',
@@ -167,12 +177,15 @@ function VerificationStatusModal({
             : 'Please wait while we confirm your payment.'}
         </Text>
       </Animated.View>
-    </View>
+      </View>
+    </Modal>
   );
 }
 
 function TransactionRow({ transaction }: { transaction: WalletTransaction }) {
   const isCredit = transaction.direction === 'credit';
+  const isPurchase = transaction.title.startsWith('Purchased ');
+  const amountColor = isCredit ? '#023E8A' : isPurchase ? '#bda87f' : '#EF4444';
   
   const iconBackground = isCredit ? transactionStyles.iconBackground.credit : transactionStyles.iconBackground.debit;
 
@@ -189,11 +202,11 @@ function TransactionRow({ transaction }: { transaction: WalletTransaction }) {
       
 
       <View className="flex-1">
-        <Text className={`text-[16px] font-raleway-bold text-[#111827]`}>{transaction.title}</Text>
+        <Text className={`text-[16px] font-raleway-bold text-[#000000]`}>{transaction.title}</Text>
         <Text className={`mt-0.5 text-[12px] text-[#64748B]`}>{transaction.timestamp}</Text>
       </View>
 
-      <Text className={` text-[14px] ${isCredit ? 'text-[#023E8A]' : 'text-[#EF4444]'}`} >
+      <Text className="text-[14px]" style={{ color: amountColor }}>
         {isCredit ? '+' : '-'}₹{transaction.amount.toFixed(2)}
       </Text>
     </View>
@@ -236,7 +249,7 @@ function WalletAlertModal({
             return (
               <Pressable
                 key={`${action.label}-${index}`}
-                className={`flex-1 items-center justify-center rounded-[12px] px-4 py-3 ${buttonStyle}`}
+                className={`flex-1 items-center justify-center rounded-full px-4 py-3 ${buttonStyle}`}
                 onPress={() => { action.onPress?.(); onClose(); }}
               >
                 <Text className="text-[14px] font-raleway-bold" style={{ color: buttonTextColor }}>
@@ -251,13 +264,64 @@ function WalletAlertModal({
   );
 }
 
+function WithdrawalStatusModal({
+  isLoading,
+  feedback,
+  onClose,
+}: {
+  isLoading: boolean;
+  feedback: WithdrawalFeedback | null;
+  onClose: () => void;
+}) {
+  const isVisible = isLoading || feedback !== null;
+  if (!isVisible) return null;
+
+  const isSuccess = feedback?.status === 'success';
+
+  return (
+    <Modal
+      visible={isVisible}
+      animationType="fade"
+      onRequestClose={() => { if (!isLoading) onClose(); }}
+    >
+      <View className="flex-1 items-center justify-center bg-white px-8">
+        <View className={`mb-6 h-24 w-24 items-center justify-center rounded-full ${isLoading ? 'bg-[#EEF3FF]' : isSuccess ? 'bg-[#DCFCE7]' : 'bg-[#FEE2E2]'}`}>
+          {isLoading ? (
+            <ActivityIndicator size="large" color={colors.primary} />
+          ) : isSuccess ? (
+            <Check size={54} color="#16A34A" strokeWidth={3} />
+          ) : (
+            <X size={54} color="#DC2626" strokeWidth={3} />
+          )}
+        </View>
+        <Text className="text-center text-[28px] font-raleway-bold text-[#111827]">
+          {isLoading ? 'Processing Withdrawal' : isSuccess ? 'Withdrawal Recorded' : 'Withdrawal Failed'}
+        </Text>
+        <Text className="mt-3 text-center text-[18px] leading-6 font-raleway-semibold text-[#64748B]">
+          {isLoading ? 'Checking your balance and updating your wallet.' : feedback?.message}
+        </Text>
+        {!isLoading ? (
+          <Pressable
+            className="mt-7 h-[50px] min-w-[140px] items-center rounded-full bg-[#023E8A] px-6 py-3"
+            onPress={onClose}
+          >
+            <Text className="text-[20px] font-raleway-bold text-white">Done</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </Modal>
+  );
+}
+
 export default function WalletScreen() {
   const dispatch = useAppDispatch();
+  const { amount: amountParam, needed: neededParam } = useLocalSearchParams<{ amount?: string; needed?: string }>();
   const wallet = useAppSelector((state) => state.wallet);
   const user = useAppSelector((state) => state.user);
   const profile = useAppSelector((state) => state.profile.details);
-  const [amountInput, setAmountInput] = useState('200');
+  const [amountInput, setAmountInput] = useState(amountParam ?? '200');
   const [walletAlert, setWalletAlert] = useState<WalletAlert | null>(null);
+  const [withdrawalFeedback, setWithdrawalFeedback] = useState<WithdrawalFeedback | null>(null);
   const [pendingPayment, setPendingPayment] = useState<{
     razorpay_order_id: string;
     razorpay_payment_id: string;
@@ -269,7 +333,15 @@ export default function WalletScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!wallet.hasLoaded || wallet.error) {
+      if (amountParam && /^\d+(\.\d{1,2})?$/.test(amountParam)) {
+        setAmountInput(amountParam);
+      }
+    }, [amountParam]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!wallet.hasLoaded && !wallet.error) {
         void dispatch(fetchWallet());
       }
       if (
@@ -301,7 +373,7 @@ export default function WalletScreen() {
   }, [dispatch, wallet.hasMoreTransactions, wallet.isLoadingTransactions, wallet.transactionsError, wallet.transactionsOffset]);
 
   const refreshWallet = useCallback(() => {
-    void dispatch(fetchWallet());
+    void dispatch(fetchWallet(true));
     pageRequestActive.current = true;
     void dispatch(fetchWalletTransactions({ offset: 0, append: false }))
       .finally(() => { pageRequestActive.current = false; });
@@ -317,7 +389,7 @@ export default function WalletScreen() {
 
     setPendingPayment(null);
     await Promise.all([
-      dispatch(fetchWallet()),
+      dispatch(fetchWallet(true)),
       dispatch(fetchWalletTransactions({ offset: 0, append: false })),
     ]);
     const params = {
@@ -420,6 +492,33 @@ export default function WalletScreen() {
     }
   };
 
+  const handleWithdraw = async () => {
+    if (!user.isAuthenticated) {
+      setWithdrawalFeedback({ status: 'error', message: 'Please sign in before withdrawing wallet funds.' });
+      return;
+    }
+
+    const amount = Number(amountInput);
+    if (!/^\d+(\.\d{1,2})?$/.test(amountInput) || !Number.isFinite(amount) || amount < 100 || amount > 2000) {
+      setWithdrawalFeedback({ status: 'error', message: 'Enter a withdrawal amount between ₹100 and ₹2,000.' });
+      return;
+    }
+
+    setWithdrawalFeedback(null);
+    try {
+      await dispatch(withdrawWallet(amount)).unwrap();
+      setWithdrawalFeedback({
+        status: 'success',
+        message: `₹${amount.toFixed(2)} has been deducted from your wallet. Bank or UPI payout is not connected yet.`,
+      });
+    } catch (error) {
+      setWithdrawalFeedback({
+        status: 'error',
+        message: typeof error === 'string' ? error : 'Unable to withdraw from your wallet. Please try again.',
+      });
+    }
+  };
+
   const header = (
     <View className="px-5 pb-3">
       <Text className="mb-4 mt-2 text-[24px] font-raleway-bold text-[#111827]">My Wallet</Text>
@@ -432,6 +531,21 @@ export default function WalletScreen() {
         <Text className="mt-2 text-[34px] font-bold text-white">₹{wallet.balance.toFixed(2)}</Text>
         <Text className="mt-2 text-[13px] font-raleway-semibold text-[#DCE6FF]">Use wallet for faster checkout and cashback rewards</Text>
       </View>
+
+      {Number(neededParam) > 0 ? (
+        <View className="mt-4 rounded-[12px] border border-[#C7D9FF] bg-[#EEF3FF] p-3">
+          <Text className="text-[13px] font-raleway-bold text-[#023E8A]">
+            Your order needs ₹{Number(neededParam).toFixed(2)} more.
+          </Text>
+          <Text className="mt-1 text-[12px] text-[#475569]">
+            {Number(neededParam) < 100
+              ? 'The minimum wallet top-up is ₹100; that amount is entered below.'
+              : Number(neededParam) > 5000
+                ? 'Top-ups are limited to ₹5,000 each. Add ₹5,000 first, then top up the remaining amount.'
+              : 'The required top-up amount is entered below.'}
+          </Text>
+        </View>
+      ) : null}
 
       <Text className="mb-2.5 mt-6 text-[16px] font-raleway-bold text-[#111827]">Add Money</Text>
       <View className="flex-row flex-wrap gap-2">
@@ -450,9 +564,10 @@ export default function WalletScreen() {
         ))}
       </View>
 
+      <Text className="mb-2 mt-4 text-[14px] font-raleway-bold text-[#111827]">Custom amount (₹)</Text>
       <TextInput
-        accessibilityLabel="Deposit amount"
-        className="mt-3 rounded-[20px] h-[50px] border border-[#E2E8F0] bg-white px-6 py-3.5 text-[18px] text-[#111827]"
+        accessibilityLabel="Custom wallet amount for adding or withdrawing"
+        className="rounded-[12px] h-[50px] border border-[#E2E8F0] bg-white px-4 py-3.5 text-[18px] text-[#111827]"
         value={amountInput}
         onChangeText={setAmountInput}
         keyboardType="decimal-pad"
@@ -461,12 +576,34 @@ export default function WalletScreen() {
         maxLength={8}
       />
 
-      <View className="mt-5">
-        <PrimaryButton
-          label={pendingPayment ? 'Payment Verification Required' : wallet.isDepositing ? 'Processing Deposit…' : `Add ₹${Number(amountInput) || 0} to Wallet`}
+      <View className="mt-4 flex-row gap-3">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Add ₹${Number(amountInput) || 0} to wallet`}
+          className="min-h-[50px] flex-1 flex-row items-center justify-center gap-2 rounded-full bg-[#023E8A] px-3"
           onPress={() => { void handleDeposit(); }}
-          disabled={wallet.isDepositing || pendingPayment !== null}
-        />
+          disabled={wallet.isDepositing || wallet.isWithdrawing || pendingPayment !== null}
+          style={{ opacity: wallet.isDepositing || wallet.isWithdrawing || pendingPayment !== null ? 0.45 : 1 }}
+        >
+          <ArrowDownLeft size={17} color="#FFFFFF" />
+          <Text className="text-[16px] font-raleway-bold text-white">
+            {pendingPayment ? 'Payment Pending' : wallet.isDepositing ? 'Adding…' : 'Add Money'}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Withdraw ₹${Number(amountInput) || 0} from wallet`}
+          className="min-h-[50px] flex-1 flex-row items-center justify-center gap-2 rounded-full border border-[#023E8A] bg-white px-3"
+          onPress={() => { void handleWithdraw(); }}
+          disabled={wallet.isWithdrawing || wallet.isDepositing}
+          style={{ opacity: wallet.isWithdrawing || wallet.isDepositing ? 0.45 : 1 }}
+        >
+          <ArrowUpRight size={17} color="#023E8A" />
+          <Text className="text-[16px] font-raleway-bold text-[#023E8A]">
+            {wallet.isWithdrawing ? 'Withdrawing…' : 'Withdraw'}
+          </Text>
+        </Pressable>
       </View>
 
       {pendingPayment ? (
@@ -527,6 +664,14 @@ export default function WalletScreen() {
         keyboardShouldPersistTaps="handled"
       />
       <VerificationStatusModal isVisible={isVerifyingPayment} isSuccess={false} />
+      <WithdrawalStatusModal
+        isLoading={wallet.isWithdrawing}
+        feedback={withdrawalFeedback}
+        onClose={() => {
+          setWithdrawalFeedback(null);
+          dispatch(resetWithdrawalError());
+        }}
+      />
       <WalletAlertModal alert={walletAlert} isVisible={walletAlert !== null} onClose={() => setWalletAlert(null)} />
     </View>
   );

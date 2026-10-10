@@ -4,6 +4,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { ArrowLeft, CalendarDays, Check, Plus, Minus } from 'lucide-react-native';
 import { useFreshStore } from '@/store/useFreshStore';
+import { Address, Product } from '@/types/fresh';
+
+const dayCodeMap: Record<string, string> = {
+  Su: 'SU',
+  Mo: 'MO',
+  Tu: 'TU',
+  We: 'WE',
+  Th: 'TH',
+  Fr: 'FR',
+  Sa: 'SA',
+};
+
+const slotCodeMap: Record<string, 'MORNING' | 'EVENING'> = {
+  Morning: 'MORNING',
+  Evening: 'EVENING',
+};
 
 const dayShortNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const dayLongNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -64,9 +80,10 @@ function generateUpcomingDates(startDate: Date) {
 
 export default function SubscribeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { products } = useFreshStore();
+  const { products, addresses, createSubscription, subscriptionIsCreating } = useFreshStore();
 
-  const product = products.find((item) => item.id === id) ?? products[0];
+  const product = products.find((item: Product) => item.id === id) ?? products[0];
+  const defaultAddress = addresses.find((item: Address) => item.isDefault) ?? addresses[0];
 
   const [frequency, setFrequency] = useState<'Daily' | 'Alternate' | 'Custom'>('Daily');
   const [selectedSlots, setSelectedSlots] = useState<string[]>(['Morning']);
@@ -143,8 +160,31 @@ export default function SubscribeScreen() {
     }));
   };
 
-  const handlePlaceOrder = () => {
-    setShowSuccess(true);
+  const handlePlaceOrder = async () => {
+    if (!defaultAddress || selectedSlots.length === 0) return;
+
+    const action = await createSubscription({
+      productId: product.id,
+      addressId: defaultAddress.id,
+      frequency,
+      startDate: getDateKey(selectedDate),
+      dailySlots: selectedSlots.map((slot) => slotCodeMap[slot] ?? 'MORNING'),
+      dailyQuantity: frequency === 'Daily' ? dailyQty : undefined,
+      alternateConfig: frequency === 'Alternate' ? {
+        startDateQuantity: startQty,
+        succeedingDayQuantity: succeedingQty,
+      } : undefined,
+      customConfig: frequency === 'Custom' ? {
+        selectedDays: selectedDays.map((day) => (dayCodeMap[day] ?? 'MO') as 'SU' | 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA'),
+        quantityPerDay: Object.fromEntries(
+          selectedDays.map((day) => [dayCodeMap[day] ?? 'MO', customQty[day] ?? 1])
+        ),
+      } : undefined,
+    });
+
+    if (action.type.endsWith('/fulfilled')) {
+      setShowSuccess(true);
+    }
   };
 
   const currentQuantity =
@@ -420,9 +460,12 @@ export default function SubscribeScreen() {
       <View className="absolute bottom-0 left-0 right-0 bg-[#f6f5f3] px-4 pb-6 pt-3">
         <Pressable
           onPress={handlePlaceOrder}
+          disabled={subscriptionIsCreating || !defaultAddress || selectedSlots.length === 0}
           className="h-16 items-center justify-center rounded-[30px] bg-[#023E8A]"
         >
-          <Text className="text-[20px] font-raleway-bold text-white">Place Order</Text>
+          <Text className="text-[20px] font-raleway-bold text-white">
+            {subscriptionIsCreating ? 'Creating...' : 'Place Order'}
+          </Text>
         </Pressable>
       </View>
 
@@ -475,7 +518,7 @@ export default function SubscribeScreen() {
       {showSuccess && (
         <View className="absolute inset-0 items-center justify-center bg-black/40 px-8">
           <View className="w-full rounded-[22px] bg-white p-6">
-            <View className="mb-4 h-14 w-14 items-center justify-center self-center rounded-full bg-[#22C55E]">
+            <View className="mb-4 h-14 w-14 items-center justify-center self-center rounded-full bg-[#174929]">
               <Check size={28} color="#fff" />
             </View>
 
@@ -484,11 +527,11 @@ export default function SubscribeScreen() {
             </Text>
 
             <Text className="mt-2 text-center text-[14px] font-raleway-semibold text-[#475569]">
-              {product.name} is scheduled for {formatDisplayDate(selectedDate)} with {selectedSlots.join(' + ')} slot.
+              {product.name} is scheduled from {formatDisplayDate(selectedDate)} with {selectedSlots.join(' + ')} slot.
             </Text>
 
             <Pressable
-              className="mt-4 h-12 rounded-full bg-[#023E8A] px-5 py-3"
+              className="mt-4 h-18 rounded-full bg-[#023E8A] px-5 py-3"
               onPress={() => {
                 setShowSuccess(false);
                 router.replace('/(tabs)');

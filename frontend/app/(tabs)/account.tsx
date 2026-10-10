@@ -12,62 +12,34 @@ import {
   Bell,
   Calendar,
   ChevronRight,
-  Clock,
   CreditCard,
   MapPin,
-  Pause,
   Repeat,
-  SkipForward,
   Wallet,
 } from 'lucide-react-native';
 import {
   PrimaryButton,
   SectionTitle,
-  StatusPill,
 } from '@/components/FreshComponents';
 import { useFreshStore } from '@/store/useFreshStore';
 import { useAppDispatch } from '@/store/hooks';
 import { logout } from '@/store/slices/userSlice';
 import { fetchProfile } from '@/store/slices/profileSlice';
 import { fetchProducts } from '@/store/slices/productsSlice';
-import { formatDate } from '@/lib/cutoff';
-
-const allSubscriptions = [
-  {
-    id: 'sub-1',
-    productId: 'buffalo',
-    planTier: 'Family',
-    frequency: 'Daily',
-    timeSlot: 'Morning',
-    status: 'Active',
-    nextDeliveryDate: '2026-09-08',
-    skippedDates: [] as string[],
-  },
-  {
-    id: 'sub-2',
-    productId: 'paneer',
-    planTier: 'Starter',
-    frequency: 'Weekly',
-    timeSlot: 'Evening',
-    status: 'Paused',
-    nextDeliveryDate: '2026-09-15',
-    skippedDates: [] as string[],
-  },
-  {
-    id: 'sub-3',
-    productId: 'ghee',
-    planTier: 'Starter',
-    frequency: 'Weekly',
-    timeSlot: 'Morning',
-    status: 'Active',
-    nextDeliveryDate: '2026-09-10',
-    skippedDates: ['2026-09-03'],
-  },
-];
+import { fetchSubscriptionCounts } from '@/store/slices/subscriptionSlice';
 
 export default function AccountScreen() {
   const dispatch = useAppDispatch();
-  const { user, profile, walletBalance, products, productsStatus, productsHasLoaded } = useFreshStore();
+  const {
+    user,
+    profile,
+    walletBalance,
+    productsStatus,
+    productsHasLoaded,
+    subscriptionCounts,
+    subscriptionCountsHasLoaded,
+    subscriptionCountsIsLoading,
+  } = useFreshStore();
   const profileName = [profile.details.firstName, profile.details.lastName].filter(Boolean).join(' ') || user.name;
 
   const {isLoggingOut} = user;
@@ -76,7 +48,8 @@ export default function AccountScreen() {
     useCallback(() => {
       if (!profile.hasLoaded && !profile.isLoading) dispatch(fetchProfile());
       if (!productsHasLoaded && productsStatus !== 'loading') dispatch(fetchProducts());
-    }, [dispatch, productsHasLoaded, productsStatus, profile.hasLoaded, profile.isLoading]),
+      if (!subscriptionCountsHasLoaded && !subscriptionCountsIsLoading) dispatch(fetchSubscriptionCounts());
+    }, [dispatch, productsHasLoaded, productsStatus, profile.hasLoaded, profile.isLoading, subscriptionCountsHasLoaded, subscriptionCountsIsLoading]),
   );
 
   const handleLogout = async () => {
@@ -140,11 +113,7 @@ export default function AccountScreen() {
           {/* Active Subs */}
           <View className="flex-1 items-center">
             <Text className="text-[18px] font-bold text-[#111827]">
-              {
-                allSubscriptions.filter(
-                  (subscription) => subscription.status === 'Active'
-                ).length
-              }
+              {subscriptionCounts.active}
             </Text>
 
             <Text className="mt-[2px] text-[11px] text-[#64748B]">
@@ -181,139 +150,29 @@ export default function AccountScreen() {
           </View>
         </View>
 
-        {/* My Subscriptions */}
-        <SectionTitle
-          title="My Subscriptions"
-          action="Manage"
-          onAction={() => router.push('/subscription')}
-        />
-
-        {/* Subscription Cards */}
-        {allSubscriptions.map((sub) => {
-          const product = products.find(
-            (p) => p.id === sub.productId
-          );
-
-          return (
-            <View
-              key={sub.id}
-              className="mb-3 rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]"
-            >
-
-              {/* Subscription Header */}
-              <View className="flex-row items-center justify-between">
-
-                {/* Badge */}
-                <View className="flex-row items-center gap-1 rounded-[10px] bg-[#023E8A] px-2 py-1">
-                  <Repeat size={12} color="#fff" />
-
-                  <Text className="text-[10px] font-bold text-white">
-                    Subscription
-                  </Text>
-                </View>
-
-                {/* Status */}
-                <StatusPill label={sub.status} />
-              </View>
-
-              {/* Product */}
-              <Text className="mt-[10px] text-[16px] font-bold text-[#111827]">
-                {product?.name ?? 'Product details unavailable'}
-              </Text>
-
-              {/* Meta */}
-              <Text className="mt-[3px] text-[13px] text-[#64748B]">
-                {sub.planTier} · {sub.frequency} · {sub.timeSlot}
-              </Text>
-
-              {/* Subscription Information */}
-              <View className="mt-3 flex-row gap-4 border-t border-[#F1F5F9] pt-3">
-
-                {/* Next Delivery */}
-                <View className="flex-row items-center gap-[5px]">
-                  <Clock size={12} color="#64748B" />
-
-                  <Text className="text-[12px] font-bold text-[#111827]">
-                    Next: {formatDate(sub.nextDeliveryDate)}
-                  </Text>
-                </View>
-
-                {/* Skipped */}
-                <View className="flex-row items-center gap-[5px]">
-                  <Calendar size={12} color="#64748B" />
-
-                  <Text className="text-[12px] font-bold text-[#111827]">
-                    {sub.skippedDates.length} skipped
-                  </Text>
-                </View>
-              </View>
-
-              {/* Actions */}
-              <View className="mt-3 flex-row gap-2">
-
-                {/* Manage */}
-                <Pressable
-                  className="flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-[#F5F7FB] py-[10px]"
-                  onPress={() => router.push('/subscription')}
-                >
-                  <View className="h-7 w-7 items-center justify-center rounded-[8px] bg-[#EEF3FF]">
-                    <Calendar size={14} color="#023E8A" />
-                  </View>
-
-                  <Text className="text-[12px] font-bold text-[#111827]">
-                    Manage
-                  </Text>
-                </Pressable>
-
-                {/* Pause */}
-                <Pressable
-                  className="flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-[#F5F7FB] py-[10px]"
-                  onPress={() => router.push('/subscription/pause')}
-                >
-                  <View className="h-7 w-7 items-center justify-center rounded-[8px] bg-[#EEF3FF]">
-                    <Pause size={14} color="#F59E0B" />
-                  </View>
-
-                  <Text className="text-[12px] font-bold text-[#111827]">
-                    Pause
-                  </Text>
-                </Pressable>
-
-                {/* Skip */}
-                <Pressable
-                  className="flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-[#F5F7FB] py-[10px]"
-                  onPress={() => router.push('/subscription/skip')}
-                >
-                  <View className="h-7 w-7 items-center justify-center rounded-[8px] bg-[#EEF3FF]">
-                    <SkipForward size={14} color="#023E8A" />
-                  </View>
-
-                  <Text className="text-[12px] font-bold text-[#111827]">
-                    Skip
-                  </Text>
-                </Pressable>
-              </View>
-
-              {/* Cancel */}
-              {sub.status === 'Active' ||
-              sub.status === 'Paused' ? (
-                <Pressable
-                  className="mt-2 items-center py-[10px]"
-                  onPress={() =>
-                    router.push('/subscription/cancel')
-                  }
-                >
-                  <Text className="text-[13px] font-bold text-[#EF4444] underline">
-                    Cancel Subscription
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          );
-        })}
-
         {/* Account Settings */}
         <SectionTitle title="Account Settings" />
+
+        {/* Subscriptions */}
+        <Pressable
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+          onPress={() => router.push('/subscriptions')}
+        >
+          <View className="flex-row items-center gap-3">
+            <Repeat size={20} color="#023E8A" />
+
+            <View>
+              <Text className="text-[14px] font-bold text-[#111827]">
+                Subscriptions
+              </Text>
+              <Text className="mt-0.5 text-[12px] text-[#64748B]">
+                {subscriptionCounts.total} saved
+              </Text>
+            </View>
+          </View>
+
+          <ChevronRight size={18} color="#64748B" />
+        </Pressable>
 
         {/* Delivery Addresses */}
         <Pressable

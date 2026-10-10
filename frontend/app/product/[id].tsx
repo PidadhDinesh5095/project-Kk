@@ -2,12 +2,16 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, Image, Modal, Pressable, ScrollView, Share, Text, View } from 'react-native';
-import { ArrowLeft, Check, Clock, Share2 ,Calendar } from 'lucide-react-native';
+import { ActivityIndicator, Animated, Dimensions, Image, Modal, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { ArrowLeft, Check, MapPin, Share2, Calendar } from 'lucide-react-native';
 import { PrimaryButton ,TrustBadgeRow } from '@/components/FreshComponents';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { fetchAddresses } from '@/store/slices/addressesSlice';
+import { placeOneTimeOrder } from '@/store/slices/ordersSlice';
 import { fetchProductById } from '@/store/slices/productsSlice';
+import { fetchWallet } from '@/store/slices/walletSlice';
 import { formatDate } from '@/lib/cutoff';
+import { Address, Product } from '@/types/fresh';
 
 function getDateKey(date: Date): string {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -107,6 +111,13 @@ export default function ProductDetailScreen() {
   const detailStatus = useAppSelector((state) => state.products.detailStatusById[id] ?? 'idle');
   const detailError = useAppSelector((state) => state.products.detailErrorsById[id]);
   const productHasLoaded = useAppSelector((state) => state.products.detailHasLoadedById[id] ?? false);
+  const addresses = useAppSelector((state) => state.addresses.items);
+  const addressesAreLoading = useAppSelector((state) => state.addresses.isLoading);
+  const addressesHaveLoaded = useAppSelector((state) => state.addresses.hasLoaded);
+  const addressesError = useAppSelector((state) => state.addresses.error);
+  const { isCreating, createError } = useAppSelector((state) => state.orders);
+  const walletBalance = useAppSelector((state) => state.wallet.balance);
+  const walletIsLoading = useAppSelector((state) => state.wallet.isLoading);
 
   useEffect(() => {
     if (!productHasLoaded && detailStatus !== 'loading') {
@@ -119,11 +130,17 @@ export default function ProductDetailScreen() {
   const [quantity, setQuantity] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [chosenAddressId, setChosenAddressId] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isCheckingBalance, setIsCheckingBalance] = useState(false);
+  const [walletCheckError, setWalletCheckError] = useState('');
+  const [checkedWalletBalance, setCheckedWalletBalance] = useState<number | null>(null);
+  const [walletShortfall, setWalletShortfall] = useState<number | null>(null);
   const skeletonOpacity = useRef(new Animated.Value(0.45)).current;
 
-  const todayKey = getDateKey(liveDate);
-  const isBeforeNoon = liveDate.getHours() < 12;
+  const selectedAddressId = addresses.some((address : Address) => address.id === chosenAddressId)
+    ? chosenAddressId
+    : addresses.find((address : Address) => address.isDefault)?.id ?? addresses[0]?.id ?? '';
 
   useEffect(() => {
     const interval = setInterval(() => setLiveDate(new Date()), 60000);
@@ -174,6 +191,12 @@ export default function ProductDetailScreen() {
     }
   }, [deliveryDates, liveDate, selectedDate, selectedSlots.length]);
 
+  useEffect(() => {
+    if (showBuyOnce && !addressesHaveLoaded && !addressesAreLoading) {
+      void dispatch(fetchAddresses());
+    }
+  }, [addressesAreLoading, addressesHaveLoaded, dispatch, showBuyOnce]);
+
   const selectedDateInfo = deliveryDates.find((date) => date.value === selectedDate);
 
   const slotOptions = useMemo(() => {
@@ -191,9 +214,58 @@ export default function ProductDetailScreen() {
     { bg: '#FFF3D6', text: '#023E8A' },
   ];
 
-  const handleBuyOnceConfirm = () => {
-    setShowBuyOnce(false);
-    setShowSuccess(true);
+  const handleBuyOnceConfirm = async () => {
+    const address = addresses.find((item : Address) => item.id === selectedAddressId);
+    if (!selectedDate || !address || selectedSlots.length === 0) return;
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+      setWalletCheckError('Unable to verify the order total. Please try again.');
+      return;
+    }
+
+    setWalletCheckError('');
+    setWalletShortfall(null);
+    setIsCheckingBalance(true);
+    let currentBalance: number;
+    try {
+      currentBalance = await dispatch(fetchWallet(true)).unwrap();
+      setCheckedWalletBalance(currentBalance);
+    } catch {
+      setWalletCheckError('Unable to check your wallet balance. Please try again.');
+      setIsCheckingBalance(false);
+      return;
+    }
+    setIsCheckingBalance(false);
+
+    if (!Number.isFinite(currentBalance) || currentBalance < 0) {
+      setWalletCheckError('Unable to verify your wallet balance. Please try again.');
+      return;
+    }
+
+    if (currentBalance < totalAmount) {
+      setWalletShortfall(Number((totalAmount - currentBalance).toFixed(2)));
+      return;
+    }
+
+    try {
+      await dispatch(placeOneTimeOrder({
+        productId: product.id,
+        addressId: address.id,
+        quantity,
+        deliveryDate: selectedDate,
+        slots: selectedSlots.map((slot) => slot === 'Morning' ? 'MORNING' : 'EVENING'),
+        productName: product.name,
+        productSize: product.size,
+        deliveryAddress: [address.line1, address.city, address.pincode].filter(Boolean).join(', '),
+      })).unwrap();
+      void dispatch(fetchWallet(true));
+      setShowBuyOnce(false);
+      setShowSuccess(true);
+    } catch (error) {
+      const orderError = error as { shortfall?: number };
+      if (orderError.shortfall && orderError.shortfall > 0) {
+        setWalletShortfall(Number(orderError.shortfall.toFixed(2)));
+      }
+    }
   };
 
   const handleShare = async () => {
@@ -256,7 +328,7 @@ export default function ProductDetailScreen() {
     <View className="flex-1 bg-[#f5f4f1]">
       <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
-          {galleryImages.map((image, index) => (
+          {galleryImages.map((image : string, index : number) => (
             <Image
               key={`${image}-${index}`}
               source={{ uri: image }}
@@ -296,7 +368,7 @@ export default function ProductDetailScreen() {
           </Text>
 
           <View className="mt-2 flex-row flex-wrap gap-2.5">
-            {product.tags.map((tag, index) => {
+            {product.tags.map((tag : string, index : number) => {
               const color = highlightColors[index % highlightColors.length];
 
               return (
@@ -329,7 +401,7 @@ export default function ProductDetailScreen() {
           </Text>
 
           <View className="mt-4 overflow-hidden rounded-[14px] border border-[#e4dfd6] bg-transparent">
-            {(product.nutritionBenefits ?? []).map((item, index, arr) => (
+            {(product.nutritionBenefits ?? []).map((item : { label: string; value: string }, index : number, arr : { label: string; value: string }[]) => (
               <View
                 key={`${item.label}-${index}`}
                 className={
@@ -382,7 +454,11 @@ export default function ProductDetailScreen() {
         <View className="flex-row gap-3 mb-2">
           <Pressable
             className="flex-1 h-15 items-center justify-center rounded-full border border-[#d8d5d0]   py-3"
-            onPress={() => setShowBuyOnce(true)}
+            onPress={() => {
+              setWalletShortfall(null);
+              setWalletCheckError('');
+              setShowBuyOnce(true);
+            }}
           >
             <Text className="text-[18px] font-raleway-bold text-black ">
               Add
@@ -409,13 +485,81 @@ export default function ProductDetailScreen() {
         onRequestClose={() => setShowBuyOnce(false)}
       >
         <View className="flex-1 justify-end bg-black/50">
-          <View className="rounded-t-[24px] bg-white p-5 pb-[34px]">
+          <ScrollView
+            className="w-full"
+            style={{ maxHeight: '92%', flexGrow: 0 }}
+            contentContainerStyle={{ flexGrow: 0 }}
+            keyboardShouldPersistTaps="handled"
+          >
+          <View className="w-full rounded-t-[24px] bg-white p-5 pb-[34px]">
             {/* Handle */}
             <View className="mb-4 h-1 w-10 self-center rounded-[2px] bg-[#E2E8F0]" />
 
             <Text className="mt-1 text-[18px] font-raleway-bold text-black">
               {product.name} · {product.size} · ₹{product.price}
             </Text>
+
+            <Text className="mb-2.5 mt-4 text-[14px] font-raleway-bold text-[#111827]">
+              Confirm delivery address
+            </Text>
+
+            {addressesAreLoading ? (
+              <ActivityIndicator className="py-4" color="#023E8A" />
+            ) : addressesError ? (
+              <View className="rounded-[12px] border border-[#FECACA] bg-white p-3">
+                <Text className="text-[13px] text-[#B91C1C]">{addressesError}</Text>
+                <Pressable className="mt-2 self-start" onPress={() => { void dispatch(fetchAddresses()); }}>
+                  <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Retry</Text>
+                </Pressable>
+              </View>
+            ) : addresses.length === 0 ? (
+              <View className="rounded-[12px] border border-[#E2E8F0] bg-white p-3">
+                <Text className="text-[13px] text-[#64748B]">Add a delivery address to continue.</Text>
+                <Pressable className="mt-2 self-start" onPress={() => router.push('/address-setup')}>
+                  <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Add address</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View className="gap-2">
+                <ScrollView
+                  style={{ maxHeight: 152 }}
+                  contentContainerStyle={{ gap: 8 }}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={addresses.length > 2}
+                >
+                  {addresses.map((address : Address) => {
+                    const isSelected = selectedAddressId === address.id;
+
+                    return (
+                      <Pressable
+                        key={address.id}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: isSelected }}
+                        className={`min-h-[72px] flex-row items-center gap-3 rounded-[12px] border p-3 ${isSelected ? 'border-[#023E8A] bg-[#EEF3FF]' : 'border-[#E2E8F0] bg-white'}`}
+                        onPress={() => setChosenAddressId(address.id)}
+                      >
+                        <MapPin size={17} color={isSelected ? '#023E8A' : '#64748B'} />
+                        <View className="flex-1">
+                          <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
+                            {address.line1 || address.label}{address.isDefault ? ' · Default' : ''}
+                          </Text>
+                          <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
+                            {[address.city, address.pincode].filter(Boolean).join(', ')}
+                          </Text>
+                          {address.deliveryInstructions ? (
+                            <Text numberOfLines={1} className="mt-0.5 text-[11px] text-[#64748B]">{address.deliveryInstructions}</Text>
+                          ) : null}
+                        </View>
+                        {isSelected ? <Check size={18} color="#023E8A" /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+                <Pressable className="self-start py-1" onPress={() => router.push('/address-setup')}>
+                  <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Add another address</Text>
+                </Pressable>
+              </View>
+            )}
 
             {/* Date */}
             <Text className="mb-2.5 mt-2 text-[14px] font-raleway-bold text-[#111827]">
@@ -604,6 +748,33 @@ export default function ProductDetailScreen() {
             </View>
 
             {/* Buttons */}
+            {walletShortfall !== null ? (
+              <View className="mt-4 rounded-[14px] border border-[#F59E0B] bg-[#FFFBEB] p-3.5">
+                <Text className="text-[14px] font-raleway-bold text-[#92400E]">Insufficient wallet balance</Text>
+                <Text className="mt-1 text-[13px] leading-5 text-[#78350F]">
+                  Order total ₹{totalAmount.toFixed(2)} · Available ₹{(checkedWalletBalance ?? walletBalance).toFixed(2)}. Add ₹{walletShortfall.toFixed(2)} more to place this order.
+                </Text>
+                <Pressable
+                  className="mt-3 min-h-[42px] items-center justify-center rounded-[10px] bg-[#023E8A] px-4"
+                  onPress={() => {
+                    const amountToAdd = Math.min(5000, Math.max(100, walletShortfall));
+                    setShowBuyOnce(false);
+                    router.push({
+                      pathname: '/(tabs)/wallet',
+                      params: { amount: amountToAdd.toFixed(2), needed: walletShortfall.toFixed(2) },
+                    });
+                  }}
+                >
+                  <Text className="text-[14px] font-raleway-bold text-white">Add money to wallet</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {walletCheckError ? (
+              <Text className="mt-3 text-[13px] font-raleway-semibold text-[#B91C1C]">{walletCheckError}</Text>
+            ) : null}
+            {createError ? (
+              <Text className="mt-3 text-[13px] font-raleway-semibold text-[#B91C1C]">{createError.message}</Text>
+            ) : null}
             <View className="mt-5 flex-row gap-2.5">
               <Pressable
                 className="justify-center px-4"
@@ -616,18 +787,24 @@ export default function ProductDetailScreen() {
 
               <View className="flex-1">
                 <PrimaryButton
-                  label="Confirm Order"
+                  label={isCheckingBalance ? 'Checking wallet…' : isCreating ? 'Placing order…' : 'Confirm Order'}
                   disabled={
+                    !selectedAddressId ||
+                    addressesAreLoading ||
+                    walletIsLoading ||
+                    isCheckingBalance ||
+                    isCreating ||
                     !selectedDate ||
                     selectedSlots.length === 0 ||
                     !selectedDateInfo?.isSelectable ||
                     selectedSlots.some((slot) => !slotOptions[slot as keyof typeof slotOptions])
                   }
-                  onPress={handleBuyOnceConfirm}
+                  onPress={() => { void handleBuyOnceConfirm(); }}
                 />
               </View>
             </View>
           </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -638,9 +815,9 @@ export default function ProductDetailScreen() {
         animationType="fade"
         onRequestClose={() => setShowSuccess(false)}
       >
-        <View className="flex-1 bg-black/50">
-          <View className="mt-[40%] w-[90%] self-center items-center rounded-[20px] bg-white p-7">
-            <View className="mb-4 h-14 w-14 items-center justify-center rounded-full bg-[#22C55E]">
+        <View className="flex-1 items-center justify-center bg-black/50 px-4">
+          <View className="w-full max-w-[420px] items-center rounded-[20px] bg-white p-7">
+            <View className="mb-4 h-14 w-14 items-center justify-center rounded-full bg-[#26964f]">
               <Check size={28} color="#fff" />
             </View>
 
@@ -657,7 +834,7 @@ export default function ProductDetailScreen() {
             </Text>
 
             <Pressable
-              className="mt-5 w-full items-center rounded-[14px] bg-[#023E8A] px-8 py-[14px]"
+              className="mt-5 w-full items-center rounded-full bg-[#023E8A] px-8 py-[14px]"
               onPress={() => {
                 setShowSuccess(false);
                 router.replace('/(tabs)/orders');

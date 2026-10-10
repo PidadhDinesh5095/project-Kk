@@ -147,7 +147,7 @@ export default function AddressesScreen() {
         {!!error && <Text className="mb-3 text-[13px] text-red-600">{error}</Text>}
 
         {/* Address Cards */}
-        {!isLoading && addresses.map((address) => (
+        {!isLoading && addresses.map((address : Address) => (
           <View
             key={address.id}
             className="mb-3 rounded-2xl border border-[#E2E8F0] bg-white p-[14px]"

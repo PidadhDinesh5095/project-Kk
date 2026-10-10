@@ -20,7 +20,7 @@ Node.js + Express + PostgreSQL backend. Boot-tested — `node server.js` starts 
 
 **Home** — `GET /api/home/banners` (public, reads `home_banners`, Redis-cached for 1 hour), `GET /api/home/popular-products` (authenticated, Redis-cached for 5 min)
 
-**Wallet** — `GET /api/wallet`, `POST /api/wallet/topup`, `POST /api/wallet/topup/verify`, `GET /api/wallet/transactions`
+**Wallet** — `GET /api/wallet`, `POST /api/wallet/topup`, `POST /api/wallet/topup/verify`, `GET /api/wallet/transactions?offset=0` (10 rows per page; increment offset by 10)
 
 **Products** — `GET /api/products`, `GET /api/products?category=`, `GET /api/products/search?q=`, `GET /api/products/:id`
 

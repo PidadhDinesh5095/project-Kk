@@ -1,5 +1,6 @@
 
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import { useState } from 'react';
 import {
   Modal,
@@ -8,40 +9,61 @@ import {
   Text,
   View,
 } from 'react-native';
-import { ArrowLeft, Check, Pause, Repeat } from 'lucide-react-native';
+import { ArrowLeft, Pause, Repeat } from 'lucide-react-native';
 import {
-  colors,
   PrimaryButton,
   StatusPill,
 } from '@/components/FreshComponents';
 import { useFreshStore } from '@/store/useFreshStore';
-import { formatDate } from '@/lib/cutoff';
-
-const pauseDurations = [
-  { id: '3', label: '3 days', sub: 'Until 9 Sep' },
-  { id: '7', label: '7 days', sub: 'Until 13 Sep' },
-  { id: '14', label: '14 days', sub: 'Until 20 Sep' },
-  { id: '30', label: '30 days', sub: 'Until 6 Oct' },
-];
+import { Product } from '@/types/fresh';
+import { SubscriptionSkeleton } from '@/components/SubscriptionSkeleton';
 
 export default function PauseSubscriptionScreen() {
   const {
     subscription,
-    updateSubscription,
+    subscriptionIsLoading,
+    subscriptionHasLoaded,
+    fetchSubscriptions,
+    pauseSubscription,
+    subscriptionIsUpdating,
+    subscriptionError,
     products,
   } = useFreshStore();
 
-  const product = products.find(
-    (p) => p.id === subscription.productId
-  )!;
+  useFocusEffect(
+    useCallback(() => {
+      if (!subscriptionHasLoaded && !subscriptionIsLoading) void fetchSubscriptions();
+    }, [fetchSubscriptions, subscriptionHasLoaded, subscriptionIsLoading]),
+  );
 
-  const [selected, setSelected] = useState('3');
   const [showSuccess, setShowSuccess] = useState(false);
+
+  if (subscriptionIsLoading || !subscriptionHasLoaded) {
+    return (
+      <View className="flex-1 bg-[#F7F9FC] px-5 pt-4">
+        <Text className="mb-4 text-[22px] font-bold text-[#111827]">Pause Subscription</Text>
+        <SubscriptionSkeleton variant="pause" />
+      </View>
+    );
+  }
+
+  if (!subscription) {
+    return (
+      <View className="flex-1 items-center justify-center bg-[#F7F9FC] px-6">
+        <Text className="text-[16px] font-bold text-[#111827]">Subscription not found</Text>
+        <Pressable className="mt-4" onPress={() => router.back()}>
+          <Text className="font-bold text-[#023E8A]">Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const product = products.find(
+    (productItem: Product) => productItem.id === subscription.productId
+  );
 
   return (
     <View className="flex-1 bg-[#F7F9FC]">
-
-      {/* Back Button */}
       <Pressable
         className="ml-4 mt-2"
         onPress={() => router.back()}
@@ -58,15 +80,11 @@ export default function PauseSubscriptionScreen() {
           paddingBottom: 100,
         }}
       >
-        {/* Title */}
         <Text className="mt-2 mb-4 text-[22px] font-bold text-[#111827]">
           Pause Subscription
         </Text>
 
-        {/* Subscription Card */}
         <View className="rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
-
-          {/* Card Top */}
           <View className="flex-row items-center justify-between">
             <View className="flex-row items-center gap-1 rounded-[10px] bg-[#023E8A] px-2 py-1">
               <Repeat size={12} color="#fff" />
@@ -79,9 +97,8 @@ export default function PauseSubscriptionScreen() {
             <StatusPill label={subscription.status} />
           </View>
 
-          {/* Product */}
           <Text className="mt-[10px] text-[18px] font-bold text-[#111827]">
-            {product.name}
+            {product?.name ?? subscription.productName ?? 'Product'}
           </Text>
 
           <Text className="mt-[3px] text-[13px] text-[#64748B]">
@@ -90,97 +107,37 @@ export default function PauseSubscriptionScreen() {
           </Text>
         </View>
 
-        {/* Pause Duration */}
-        <Text className="mt-6 mb-[10px] text-[15px] font-bold text-[#111827]">
-          Choose pause duration
-        </Text>
-
-        {pauseDurations.map((d) => {
-          const active = selected === d.id;
-
-          return (
-            <Pressable
-              key={d.id}
-              onPress={() => setSelected(d.id)}
-              className={`mb-[10px] min-h-[66px] flex-row items-center justify-between rounded-[14px] border bg-white p-[14px] ${
-                active
-                  ? 'border-[#023E8A] bg-[#F5F8FF]'
-                  : 'border-[#E2E8F0]'
-              }`}
-            >
-              {/* Left Side */}
-              <View className="flex-row items-center gap-3">
-                <View
-                  className={`h-9 w-9 items-center justify-center rounded-[10px] ${
-                    active
-                      ? 'bg-[#023E8A]'
-                      : 'bg-[#FEF3C7]'
-                  }`}
-                >
-                  <Pause
-                    size={16}
-                    color={active ? '#fff' : colors.amber}
-                  />
-                </View>
-
-                <View>
-                  <Text className="text-[14px] font-bold text-[#111827]">
-                    Pause for {d.label}
-                  </Text>
-
-                  <Text className="mt-[2px] text-[12px] text-[#64748B]">
-                    Resumes on {d.sub}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Radio */}
-              <View
-                className={`h-5 w-5 items-center justify-center rounded-full border-2 ${
-                  active
-                    ? 'border-[#023E8A]'
-                    : 'border-[#E2E8F0]'
-                }`}
-              >
-                {active && (
-                  <View className="h-[10px] w-[10px] rounded-full bg-[#023E8A]" />
-                )}
-              </View>
-            </Pressable>
-          );
-        })}
-
-        {/* Information Box */}
-        <View className="mt-4 rounded-[14px] bg-[#FEF3C7] p-[14px]">
-
+        <View className="mt-6 rounded-[14px] bg-[#FEF3C7] p-[14px]">
           <Text className="text-[13px] font-bold text-[#92400E]">
-            What happens when you pause?
+            Subscription pause
           </Text>
 
           <Text className="mt-2 text-[12px] leading-5 text-[#92400E]">
-            • No deliveries during the pause period{'\n'}
-            • No charges applied{'\n'}
-            • Subscription auto-resumes after the pause ends{'\n'}
-            • You can resume early anytime
+            Your active product subscription will be paused. No new orders are generated while it is paused, and you can resume it at any time.
           </Text>
         </View>
 
-        {/* Pause Button */}
         <View className="mt-7">
           <PrimaryButton
-            label="Pause Subscription"
-            onPress={() => {
-              updateSubscription({
-                status: 'Paused',
-              });
-
-              setShowSuccess(true);
+            label={subscriptionIsUpdating ? 'Pausing...' : 'Pause Subscription'}
+            disabled={subscriptionIsUpdating}
+            onPress={async () => {
+              try {
+                await pauseSubscription(subscription.id).unwrap();
+                setShowSuccess(true);
+              } catch {
+                // The API error is rendered below so the user can retry.
+              }
             }}
           />
+          {subscriptionError && (
+            <Text className="mt-3 text-center text-[13px] text-[#B91C1C]">
+              {subscriptionError}
+            </Text>
+          )}
         </View>
       </ScrollView>
 
-      {/* Success Modal */}
       <Modal
         visible={showSuccess}
         transparent
@@ -188,26 +145,19 @@ export default function PauseSubscriptionScreen() {
         onRequestClose={() => setShowSuccess(false)}
       >
         <View className="flex-1 items-center justify-center bg-black/50 px-10">
-
           <View className="w-full items-center rounded-[20px] bg-white p-7">
-
-            {/* Pause Icon */}
             <View className="mb-4 h-14 w-14 items-center justify-center rounded-full bg-[#F59E0B]">
               <Pause size={28} color="#fff" />
             </View>
 
-            {/* Title */}
             <Text className="text-[18px] font-bold text-[#111827]">
               Subscription Paused
             </Text>
 
-            {/* Body */}
             <Text className="mt-2 text-center text-[14px] leading-5 text-[#64748B]">
-              Your subscription has been paused. It will auto-resume
-              after the selected period.
+              Your product subscription is paused. New deliveries stay on hold until you resume it.
             </Text>
 
-            {/* Back Home */}
             <Pressable
               className="mt-5 w-full items-center rounded-[14px] bg-[#023E8A] px-8 py-[14px]"
               onPress={() => {
@@ -219,7 +169,6 @@ export default function PauseSubscriptionScreen() {
                 Back to Home
               </Text>
             </Pressable>
-
           </View>
         </View>
       </Modal>

@@ -8,9 +8,11 @@ const { requireAuth } = __cjsModule583;
 
 router.use(requireAuth);
 router.post('/', validate(schemas.createSubscription), subscription.createSubscription);
+router.get('/counts', subscription.getSubscriptionCounts);
 router.get('/', subscription.listSubscriptions);
 router.get('/:id', subscription.getSubscriptionById);
 router.patch('/:id/pause', validate(schemas.pauseSubscription), subscription.pauseSubscription);
+router.patch('/:id/resume', subscription.resumeSubscription);
 router.patch('/:id/skip', validate(schemas.skipDates), subscription.skipDates);
 router.delete('/:id', subscription.cancelSubscription);
 

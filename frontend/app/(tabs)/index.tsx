@@ -143,7 +143,7 @@ export default function HomeScreen() {
       if (!profileHasLoaded && !profileIsLoading) dispatch(fetchProfile());
       if (!addressesHaveLoaded && !addressesAreLoading) dispatch(fetchAddresses());
       if (!ordersHaveLoaded && !ordersAreLoading) dispatch(fetchOrders());
-      if (!walletHasLoaded && !walletIsLoading) dispatch(fetchWallet());
+      if (!walletHasLoaded && !walletIsLoading && !walletError) dispatch(fetchWallet());
     }, [
       addressesAreLoading,
       addressesHaveLoaded,

@@ -145,7 +145,7 @@ export function ProductCard({
   return (
     <Pressable
       onPress={onPress}
-      className="mb-3 rounded-2xl bg-neutral-100 p-2"
+      className="mb-3 rounded-2xl  p-2"
     >
       <View className="flex-row">
         <View className="h-[110px] w-[110px] items-center m-2 justify-center overflow-hidden rounded-xl">
@@ -367,7 +367,7 @@ export function SectionTitle({
   onAction?: () => void;
 }) {
   return (
-    <View className="mb-3 flex-row items-center justify-between">
+    <View className="mb-3 mt-2 flex-row items-center justify-between">
       <Text className="text-[18px] font-raleway-bold text-[#0F172A]">
         {title}
       </Text>

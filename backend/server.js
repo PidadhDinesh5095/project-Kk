@@ -34,7 +34,7 @@ import orderRoutes from './routes/orderRoutes.js';
 import subscriptionRoutes from './routes/subscriptionRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
-import extendSubscriptionOrders from './jobs/extendSubscriptionOrders.js';
+import generateDailySubscriptionOrders from './jobs/extendSubscriptionOrders.js';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -69,15 +69,12 @@ await connectRedis(); // Connect to Upstash Redis
 // startConsumer().catch((err) => {
 //   console.error('[kafka] consumer failed to start — emails/push notifications will not be processed', err);
 // });
-// added at the bottom, alongside the existing OTP cleanup interval
-// Keeps every active subscription's materialized orders rolling 30 days ahead —
-// without this, a subscription's calendar would silently run dry a month after
-// creation. Runs once daily at 2 AM, a quiet hour for both DB load and any
-// customer looking at their calendar.
-// cron.schedule('0 2 * * *', () => {
-//   console.log('[cron] extendSubscriptionOrders');
-//   extendSubscriptionOrders().catch((err) => console.error('[cron] extendSubscriptionOrders failed', err));
-// });
+// Daily subscription order generation at 10:00 PM.
+// Only ACTIVE subscriptions create orders; PAUSED and CANCELLED subscriptions stop.
+cron.schedule('0 22 * * *', () => {
+  console.log('[cron] generateDailySubscriptionOrders');
+  generateDailySubscriptionOrders().catch((err) => console.error('[cron] generateDailySubscriptionOrders failed', err));
+});
 
 // Postgres has no TTL index like Mongo — sweep expired OTP rows periodically.
 setInterval(() => {

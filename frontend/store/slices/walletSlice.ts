@@ -1,6 +1,7 @@
 import { isAxiosError } from 'axios';
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { api } from '@/store/api';
+import type { RootState } from '@/store';
 import { WalletTransaction } from '@/types/fresh';
 
 type ApiWalletTransaction = {
@@ -10,6 +11,7 @@ type ApiWalletTransaction = {
   balance_after: number | string;
   reference: string | null;
   created_at: string;
+  purchased_product_name?: string | null;
 };
 
 type ApiResponse<T> = { data: T };
@@ -28,11 +30,13 @@ type WalletState = {
   isLoading: boolean;
   isLoadingTransactions: boolean;
   isDepositing: boolean;
+  isWithdrawing: boolean;
   hasMoreTransactions: boolean;
   transactionsOffset: number;
   transactionsError: string | null;
   error: string | null;
   depositError: string | null;
+  withdrawalError: string | null;
 };
 
 function errorMessage(error: unknown, fallback: string) {
@@ -45,12 +49,20 @@ function errorMessage(error: unknown, fallback: string) {
 function toWalletTransaction(transaction: ApiWalletTransaction): WalletTransaction {
   const amount = Number(transaction.amount);
   const isCredit = transaction.type === 'credit';
+  const isWithdrawal = transaction.reference?.startsWith('wallet-withdrawal:') ?? false;
   const type = isCredit ? 'top-up' : 'payment';
+  const title = isCredit
+    ? 'Wallet Credit'
+    : isWithdrawal
+      ? 'Wallet Withdrawal'
+      : transaction.purchased_product_name
+        ? `Purchased ${transaction.purchased_product_name}`
+        : 'Wallet Debit';
 
   return {
     id: transaction.id,
     type,
-    title: isCredit ? 'Wallet Credit' : 'Wallet Debit',
+    title,
     timestamp: new Date(transaction.created_at).toLocaleString('en-IN', {
       day: 'numeric',
       month: 'short',
@@ -59,11 +71,11 @@ function toWalletTransaction(transaction: ApiWalletTransaction): WalletTransacti
       minute: '2-digit',
     }),
     amount: Math.abs(amount),
-    direction: amount >= 0 ? 'credit' : 'debit',
+    direction: isCredit ? 'credit' : 'debit',
   };
 }
 
-export const fetchWallet = createAsyncThunk<number, void, { rejectValue: string }>(
+export const fetchWallet = createAsyncThunk<number, boolean | undefined, { rejectValue: string; state: RootState }>(
   'wallet/fetch',
   async (_, { rejectWithValue }) => {
     try {
@@ -72,6 +84,12 @@ export const fetchWallet = createAsyncThunk<number, void, { rejectValue: string 
     } catch (error) {
       return rejectWithValue(errorMessage(error, 'Unable to load wallet balance'));
     }
+  },
+  {
+    condition: (force = false, { getState }) => {
+      const wallet = getState().wallet;
+      return !wallet.isLoading && (force || (!wallet.hasLoaded && !wallet.error));
+    },
   },
 );
 
@@ -136,6 +154,27 @@ export const verifyWalletTopup = createAsyncThunk<
   },
 );
 
+export type WithdrawalResult = {
+  transaction: ApiWalletTransaction;
+  balance: number;
+};
+
+export const withdrawWallet = createAsyncThunk<
+  WithdrawalResult,
+  number,
+  { rejectValue: string }
+>(
+  'wallet/withdraw',
+  async (amount, { rejectWithValue }) => {
+    try {
+      const response = await api.post<ApiResponse<WithdrawalResult>>('/wallet/withdraw', { amount });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(errorMessage(error, 'Unable to withdraw from wallet'));
+    }
+  },
+);
+
 const initialState: WalletState = {
   balance: 0,
   transactions: [],
@@ -143,11 +182,13 @@ const initialState: WalletState = {
   isLoading: false,
   isLoadingTransactions: false,
   isDepositing: false,
+  isWithdrawing: false,
   hasMoreTransactions: true,
   transactionsOffset: 0,
   transactionsError: null,
   error: null,
   depositError: null,
+  withdrawalError: null,
 };
 
 const walletSlice = createSlice({
@@ -156,6 +197,7 @@ const walletSlice = createSlice({
   reducers: {
     resetWalletError: (state) => { state.error = null; state.depositError = null; },
     cancelWalletTopup: (state) => { state.isDepositing = false; },
+    resetWithdrawalError: (state) => { state.withdrawalError = null; },
   },
   extraReducers: (builder) => {
     builder
@@ -204,9 +246,24 @@ const walletSlice = createSlice({
       .addCase(verifyWalletTopup.rejected, (state, action) => {
         state.isDepositing = false;
         state.depositError = action.payload ?? 'Payment verification failed';
+      })
+      .addCase(withdrawWallet.pending, (state) => {
+        state.isWithdrawing = true;
+        state.withdrawalError = null;
+      })
+      .addCase(withdrawWallet.fulfilled, (state, action) => {
+        state.balance = action.payload.balance;
+        state.hasLoaded = true;
+        state.transactions.unshift(toWalletTransaction(action.payload.transaction));
+        state.transactionsOffset += 1;
+        state.isWithdrawing = false;
+      })
+      .addCase(withdrawWallet.rejected, (state, action) => {
+        state.isWithdrawing = false;
+        state.withdrawalError = action.payload ?? 'Unable to withdraw from wallet';
       });
   },
 });
 
-export const { resetWalletError, cancelWalletTopup } = walletSlice.actions;
+export const { resetWalletError, resetWithdrawalError, cancelWalletTopup } = walletSlice.actions;
 export default walletSlice.reducer;

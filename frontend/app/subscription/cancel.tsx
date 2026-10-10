@@ -1,5 +1,6 @@
 
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import { useState } from 'react';
 import {
   Modal,
@@ -16,6 +17,8 @@ import {
 } from '@/components/FreshComponents';
 import { useFreshStore } from '@/store/useFreshStore';
 import { formatDate } from '@/lib/cutoff';
+import { Product } from '@/types/fresh';
+import { SubscriptionSkeleton } from '@/components/SubscriptionSkeleton';
 
 const reasons = [
   'No longer need it',
@@ -29,16 +32,48 @@ const reasons = [
 export default function CancelSubscriptionScreen() {
   const {
     subscription,
-    updateSubscription,
+    subscriptionIsLoading,
+    subscriptionHasLoaded,
+    fetchSubscriptions,
+    cancelSubscription,
+    subscriptionIsUpdating,
+    subscriptionError,
     products,
   } = useFreshStore();
 
-  const product = products.find(
-    (p) => p.id === subscription.productId
-  )!;
+  useFocusEffect(
+    useCallback(() => {
+      if (!subscriptionHasLoaded && !subscriptionIsLoading) void fetchSubscriptions();
+    }, [fetchSubscriptions, subscriptionHasLoaded, subscriptionIsLoading]),
+  );
 
   const [selected, setSelected] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  if (subscriptionIsLoading || !subscriptionHasLoaded) {
+    return (
+      <View className="flex-1 bg-[#F7F9FC] px-5 pt-4">
+        <Text className="mb-4 text-[22px] font-bold text-[#111827]">Cancel Subscription</Text>
+        <SubscriptionSkeleton variant="pause" />
+      </View>
+    );
+  }
+
+  if (!subscription) {
+    return (
+      <View className="flex-1 items-center justify-center bg-[#F7F9FC] px-6">
+        <Text className="text-[16px] font-bold text-[#111827]">Subscription not found</Text>
+        <Pressable className="mt-4" onPress={() => router.back()}>
+          <Text className="font-bold text-[#023E8A]">Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const product = products.find(
+    (productItem: Product) => productItem.id === subscription.productId
+  );
+  const nextDeliveryDate = subscription.nextDeliveryDate ?? subscription.startDate ?? new Date().toISOString();
 
   return (
     <View className="flex-1 bg-[#F7F9FC]">
@@ -83,7 +118,7 @@ export default function CancelSubscriptionScreen() {
 
           {/* Product */}
           <Text className="mt-[10px] text-[18px] font-bold text-[#111827]">
-            {product.name}
+            {product?.name ?? subscription.productName ?? 'Product'}
           </Text>
 
           <Text className="mt-[3px] text-[13px] text-[#64748B]">
@@ -92,7 +127,7 @@ export default function CancelSubscriptionScreen() {
           </Text>
 
           <Text className="mt-2 text-[12px] font-bold text-[#023E8A]">
-            Next delivery: {formatDate(subscription.nextDeliveryDate)}
+            Next delivery: {formatDate(nextDeliveryDate)}
           </Text>
         </View>
 
@@ -174,17 +209,25 @@ export default function CancelSubscriptionScreen() {
         {/* Cancel Subscription */}
         <View className="mt-7 items-center">
           <Pressable
-            onPress={() => {
-              updateSubscription({
-                status: 'Cancelled',
-              });
-              setShowSuccess(true);
+            disabled={subscriptionIsUpdating}
+            onPress={async () => {
+              try {
+                await cancelSubscription(subscription.id).unwrap();
+                setShowSuccess(true);
+              } catch {
+                // Keep the screen open so the user can retry after the API error.
+              }
             }}
           >
             <Text className="text-[14px] font-bold text-[#EF4444] underline">
-              Yes, Cancel Subscription
+              {subscriptionIsUpdating ? 'Cancelling...' : 'Yes, Cancel Subscription'}
             </Text>
           </Pressable>
+          {subscriptionError && (
+            <Text className="mt-3 text-center text-[13px] text-[#B91C1C]">
+              {subscriptionError}
+            </Text>
+          )}
         </View>
 
         {/* Keep Subscription */}

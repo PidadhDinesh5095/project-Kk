@@ -10,6 +10,7 @@ router.use(requireAuth);
 router.get('/', wallet.getWallet);
 router.post('/topup', validate(schemas.topup), wallet.initiateTopup);
 router.post('/topup/verify', validate(schemas.verifyTopup), wallet.verifyTopup);
+router.post('/withdraw', validate(schemas.withdraw), wallet.withdraw);
 router.get('/transactions', wallet.getTransactions);
 
 export default router;

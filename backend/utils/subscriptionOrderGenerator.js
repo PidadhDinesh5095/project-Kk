@@ -3,14 +3,18 @@ const { generateOrderId } = __cjsModule591;
 
 const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']; // index = Date.getDay()
 
-function toDateOnly(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+function toDateOnly(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+
+  const date = new Date(value);
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
 }
 function addDays(date, days) {
   const d = new Date(date);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d;
 }
 function isoDate(date) {
@@ -19,15 +23,9 @@ function isoDate(date) {
 function isSkipped(dateStr, skippedDates) {
   return (skippedDates || []).some((d) => isoDate(new Date(d)) === dateStr);
 }
-function isPaused(dateStr, pausedRanges) {
-  return (pausedRanges || []).some((r) => dateStr >= r.startDate.slice(0, 10) && dateStr <= r.endDate.slice(0, 10));
-}
-
 // Computes every { date, slot, qty } this subscription should produce within
-// [rangeStart, rangeEnd], honoring skipped dates and paused ranges. Called both
-// at subscription creation (initial window) and by the nightly rolling job
-// (extends the window as time moves forward) — same function, same rules, so
-// the two can never calculate a date differently from one another.
+// [rangeStart, rangeEnd], honoring skipped dates. Paused subscriptions are
+// excluded by the job query, so pause ranges are not part of this calculation.
 function computeOccurrences(subscription, rangeStart, rangeEnd) {
   const occurrences = [];
   const subStart = toDateOnly(subscription.start_date);
@@ -39,20 +37,20 @@ function computeOccurrences(subscription, rangeStart, rangeEnd) {
   if (windowStart > windowEnd) return occurrences;
 
   const skippedDates = subscription.skipped_dates;
-  const pausedRanges = subscription.paused_ranges;
+  const slots = [...new Set(subscription.daily_slots ?? [])];
 
   if (subscription.frequency === 'DAILY') {
-    const slot = subscription.daily_slot || 'MORNING';
     for (let d = new Date(windowStart); d <= windowEnd; d = addDays(d, 1)) {
       const dateStr = isoDate(d);
-      if (isSkipped(dateStr, skippedDates) || isPaused(dateStr, pausedRanges)) continue;
-      occurrences.push({ date: dateStr, slot, qty: subscription.daily_quantity });
+      if (isSkipped(dateStr, skippedDates)) continue;
+      for (const slot of slots) {
+        occurrences.push({ date: dateStr, slot, qty: subscription.daily_quantity });
+      }
     }
   }
 
   if (subscription.frequency === 'ALTERNATE') {
-    const config = subscription.alternate_config;
-    const slots = config.slots || [];
+    const config = subscription.alternate_config || {};
     // Alternation is anchored to the subscription's actual start_date, not
     // windowStart, so a later rolling-window call stays in phase with the
     // original pattern instead of drifting by a day each time it's re-run.
@@ -60,7 +58,7 @@ function computeOccurrences(subscription, rangeStart, rangeEnd) {
     let d = diffDays % 2 !== 0 ? addDays(windowStart, 1) : new Date(windowStart);
     for (; d <= windowEnd; d = addDays(d, 2)) {
       const dateStr = isoDate(d);
-      if (isSkipped(dateStr, skippedDates) || isPaused(dateStr, pausedRanges)) continue;
+      if (isSkipped(dateStr, skippedDates)) continue;
       const isStartDate = dateStr === isoDate(subStart);
       const qty = isStartDate ? config.startDateQuantity : config.succeedingDayQuantity;
       for (const slot of slots) occurrences.push({ date: dateStr, slot, qty });
@@ -68,15 +66,14 @@ function computeOccurrences(subscription, rangeStart, rangeEnd) {
   }
 
   if (subscription.frequency === 'CUSTOM') {
-    const config = subscription.custom_config;
-    const slots = config.slots || [];
+    const config = subscription.custom_config || {};
     const selectedDays = config.selectedDays || [];
     const quantityPerDay = config.quantityPerDay || {};
     for (let d = new Date(windowStart); d <= windowEnd; d = addDays(d, 1)) {
-      const weekdayCode = WEEKDAY_CODES[d.getDay()];
+      const weekdayCode = WEEKDAY_CODES[d.getUTCDay()];
       if (!selectedDays.includes(weekdayCode)) continue;
       const dateStr = isoDate(d);
-      if (isSkipped(dateStr, skippedDates) || isPaused(dateStr, pausedRanges)) continue;
+      if (isSkipped(dateStr, skippedDates)) continue;
       const qty = quantityPerDay[weekdayCode];
       if (!qty) continue;
       for (const slot of slots) occurrences.push({ date: dateStr, slot, qty });
