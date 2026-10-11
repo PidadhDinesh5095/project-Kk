@@ -1,19 +1,22 @@
 
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
   Text,
   View,
 } from 'react-native';
-import { ArrowLeft, Check, Clock, Repeat } from 'lucide-react-native';
+import { ArrowLeft, Check, Clock, MapPin, Repeat } from 'lucide-react-native';
 import {
   colors,
   PrimaryButton,
   StatusPill,
 } from '@/components/FreshComponents';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { fetchAddresses } from '@/store/slices/addressesSlice';
 import { useFreshStore } from '@/store/useFreshStore';
 import { formatDate } from '@/lib/cutoff';
 
@@ -28,15 +31,29 @@ const slots = ['Morning', 'Evening'];
 const plans = ['Starter', 'Family', 'Bulk'];
 
 export default function ManageSubscriptionScreen() {
+  const dispatch = useAppDispatch();
   const {
     subscription,
     updateSubscription,
     products,
+    addresses,
   } = useFreshStore();
+  const { isLoading: addressesAreLoading, hasLoaded: addressesHaveLoaded } = useAppSelector((state) => state.addresses);
 
   const product = products.find(
     (p) => p.id === subscription.productId
   )!;
+
+  const selectedAddress =
+    addresses.find((address) => address.id === (subscription.deliveryAddressId ?? subscription.addressId)) ??
+    addresses.find((address) => address.isDefault) ??
+    addresses[0];
+
+  useEffect(() => {
+    if (!addressesHaveLoaded && !addressesAreLoading) {
+      void dispatch(fetchAddresses());
+    }
+  }, [addressesAreLoading, addressesHaveLoaded, dispatch]);
 
   const [plan, setPlan] = useState(subscription.planTier);
   const [freq, setFreq] = useState(subscription.frequency);
@@ -94,6 +111,66 @@ export default function ManageSubscriptionScreen() {
             {subscription.quantityPerDelivery} × {product.size}
           </Text>
         </View>
+
+        {/* Delivery Address */}
+        <Text className="mt-6 mb-[10px] text-[15px] font-bold text-[#111827]">
+          Delivery Address
+        </Text>
+
+        {addressesAreLoading ? (
+          <View className="mb-3 flex-row items-center justify-center rounded-[16px] border border-[#E2E8F0] bg-white p-4">
+            <ActivityIndicator size="small" color={colors.primary} />
+          </View>
+        ) : selectedAddress ? (
+          <View className="mb-3 rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
+            <View className="flex-row items-center gap-3">
+              <View className="h-10 w-10 items-center justify-center rounded-[12px] bg-[#EEF3FF]">
+                <MapPin size={17} color={colors.primary} />
+              </View>
+
+              <View className="flex-1">
+                <Text numberOfLines={1} className="text-[13px] font-bold text-[#111827]">
+                  {selectedAddress.line1 || selectedAddress.label}{selectedAddress.isDefault ? ' · Default' : ''}
+                </Text>
+                <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
+                  {[selectedAddress.city, selectedAddress.pincode].filter(Boolean).join(', ')}
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              className="mt-3 h-10 items-center justify-center rounded-full border border-[#023E8A]"
+              onPress={() => router.push({
+                pathname: '/address-setup',
+                params: {
+                  addressId: selectedAddress.id,
+                  residenceType: selectedAddress.residenceType ?? 'COMMUNITY_APARTMENT',
+                  flatNoApartmentFloor: selectedAddress.flatNoApartmentFloor ?? selectedAddress.line1,
+                  blockTower: selectedAddress.blockTower ?? '',
+                  pincode: selectedAddress.pincode,
+                  landmark: selectedAddress.landmark ?? '',
+                  deliveryInstructions: selectedAddress.deliveryInstructions ?? '',
+                  fullAddress: selectedAddress.city || 'Saved location',
+                  city: selectedAddress.city,
+                  latitude: String(selectedAddress.lat ?? ''),
+                  longitude: String(selectedAddress.lng ?? ''),
+                },
+              })}
+            >
+              <Text className="text-[13px] font-bold text-[#023E8A]">Update Address</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View className="mb-3 rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
+            <Text className="text-[13px] text-[#64748B]">No delivery address saved.</Text>
+            <Pressable
+              className="mt-3 h-10 items-center justify-center rounded-full bg-[#023E8A]"
+              onPress={() => router.push('/address-setup')}
+            >
+              <Text className="text-[13px] font-bold text-white">Add Address</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Plan Tier */}
         <Text className="mt-6 mb-[10px] text-[15px] font-bold text-[#111827]">

@@ -158,7 +158,7 @@ const resumeSubscription = asyncHandler(async (req, res) => {
 });
 
 const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
-  const { frequency, dailySlots, dailyQuantity, alternateConfig, customConfig } = req.body;
+  const { frequency, dailySlots, dailyQuantity, alternateConfig, customConfig, addressId } = req.body;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -176,21 +176,32 @@ const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
       return res.status(409).json({ success: false, message: 'Only active subscriptions can change their schedule' });
     }
 
+    const setClauses = [
+      'frequency = $1',
+      'daily_quantity = $2',
+      'daily_slots = $3',
+      'alternate_config = $4::jsonb',
+      'custom_config = $5::jsonb',
+    ];
+    const values = [
+      frequency,
+      frequency === 'DAILY' ? dailyQuantity : null,
+      dailySlots,
+      frequency === 'ALTERNATE' ? JSON.stringify(alternateConfig) : null,
+      frequency === 'CUSTOM' ? JSON.stringify(customConfig) : null,
+    ];
+
+    if (addressId !== undefined && addressId !== null) {
+      setClauses.push(`address_id = $${values.length + 1}`);
+      values.push(addressId);
+    }
+
     const { rows } = await client.query(
       `UPDATE subscriptions
-       SET frequency = $1, daily_quantity = $2, daily_slots = $3,
-           alternate_config = $4::jsonb, custom_config = $5::jsonb
-      WHERE id = $6 AND user_id = $7 AND status = 'ACTIVE'
+       SET ${setClauses.join(', ')}
+       WHERE id = $${values.length + 1} AND user_id = $${values.length + 2} AND status = 'ACTIVE'
        RETURNING *`,
-      [
-        frequency,
-        frequency === 'DAILY' ? dailyQuantity : null,
-        dailySlots,
-        frequency === 'ALTERNATE' ? JSON.stringify(alternateConfig) : null,
-        frequency === 'CUSTOM' ? JSON.stringify(customConfig) : null,
-        req.params.id,
-        req.user.id,
-      ]
+      [...values, req.params.id, req.user.id]
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');

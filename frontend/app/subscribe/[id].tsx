@@ -1,8 +1,10 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { ArrowLeft, CalendarDays, Check, Plus, Minus } from 'lucide-react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { ArrowLeft, CalendarDays, Check, MapPin, Plus, Minus } from 'lucide-react-native';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { fetchAddresses } from '@/store/slices/addressesSlice';
 import { useFreshStore } from '@/store/useFreshStore';
 import { Address, Product } from '@/types/fresh';
 
@@ -80,6 +82,12 @@ function generateUpcomingDates(startDate: Date) {
 
 export default function SubscribeScreen() {
   const { id, subscriptionId } = useLocalSearchParams<{ id: string; subscriptionId?: string }>();
+  const dispatch = useAppDispatch();
+  const {
+    isLoading: addressesAreLoading,
+    hasLoaded: addressesHaveLoaded,
+    error: addressesError,
+  } = useAppSelector((state) => state.addresses);
   const {
     products,
     addresses,
@@ -96,6 +104,7 @@ export default function SubscribeScreen() {
   const isEditing = Boolean(editingSubscription);
   const product = products.find((item: Product) => item.id === id) ?? products[0];
   const defaultAddress = addresses.find((item: Address) => item.isDefault) ?? addresses[0];
+  const [selectedAddressId, setSelectedAddressId] = useState('');
 
   const [frequency, setFrequency] = useState<'Daily' | 'Alternate' | 'Custom'>('Daily');
   const [selectedSlots, setSelectedSlots] = useState<string[]>(['Morning']);
@@ -110,6 +119,7 @@ export default function SubscribeScreen() {
     We: 1,
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showAddressPicker, setShowAddressPicker] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
@@ -138,9 +148,30 @@ export default function SubscribeScreen() {
     ));
   }, [editingSubscription]);
 
+  useEffect(() => {
+    if (editingSubscription && !selectedAddressId) {
+      const currentAddressId = editingSubscription.deliveryAddressId ?? editingSubscription.addressId;
+      if (currentAddressId) {
+        setSelectedAddressId(currentAddressId);
+        return;
+      }
+    }
+
+    if (!isEditing && defaultAddress && !selectedAddressId) {
+      setSelectedAddressId(defaultAddress.id);
+    }
+  }, [defaultAddress, editingSubscription, isEditing, selectedAddressId]);
+
+  useEffect(() => {
+    if (!addressesHaveLoaded && !addressesAreLoading) {
+      void dispatch(fetchAddresses());
+    }
+  }, [addressesAreLoading, addressesHaveLoaded, dispatch]);
+
   const now = new Date();
   const upcomingDates = useMemo(() => generateUpcomingDates(now), [now]);
   const slotAvailability = useMemo(() => getSlotAvailability(selectedDate, now), [selectedDate, now]);
+  const selectedAddress = addresses.find((item: Address) => item.id === selectedAddressId) ?? defaultAddress;
 
   const activeDayRows = useMemo(
     () =>
@@ -200,7 +231,11 @@ export default function SubscribeScreen() {
   };
 
   const handleSubmit = async () => {
-    if (selectedSlots.length === 0 || (!isEditing && !defaultAddress) || !product) return;
+    if (selectedSlots.length === 0 || !product) return;
+
+    const nextAddressId = selectedAddress?.id ?? selectedAddressId ?? editingSubscription?.deliveryAddressId ?? editingSubscription?.addressId;
+
+    if (!isEditing && !nextAddressId) return;
 
     const schedule = {
       frequency,
@@ -220,12 +255,14 @@ export default function SubscribeScreen() {
 
     try {
       if (editingSubscription) {
-        await updateSubscriptionSchedule({ id: editingSubscription.id, ...schedule }).unwrap();
+        if (!nextAddressId) return;
+        await updateSubscriptionSchedule({ id: editingSubscription.id, addressId: nextAddressId, ...schedule }).unwrap();
         await fetchSubscriptions();
       } else {
+        if (!nextAddressId) return;
         await createSubscription({
           productId: product.id,
-          addressId: defaultAddress!.id,
+          addressId: nextAddressId,
           startDate: getDateKey(selectedDate),
           ...schedule,
         }).unwrap();
@@ -357,24 +394,77 @@ export default function SubscribeScreen() {
           })}
         </View>
 
-        {!isEditing && (
-          <>
-            <Text className="mt-6 text-[16px] font-raleway-bold text-[#111827]">
-              Select Starting Date
+        {(!isEditing || editingSubscription) && (
+          <View className="mt-6">
+            <Text className="mb-3 text-[16px] font-raleway-bold text-[#111827]">
+              Delivery Address
             </Text>
 
-            <Pressable
-              onPress={() => setShowDatePicker(true)}
-              className="mt-3 flex-row items-center justify-between rounded-[18px] bg-[#f1f1ee] py-3.5 pl-4 pr-6"
-            >
-              <Text className="text-[18px] font-bold text-[#111827]">
-                {formatDisplayDate(selectedDate)}
-              </Text>
-              <View className="h-[1rem] w-[1rem] items-center justify-center rounded-[10px] bg-[#EAF1FF]">
-                <CalendarDays size={22} color="#023E8A" />
+            {addressesAreLoading ? (
+              <View className="items-center justify-center py-3">
+                <ActivityIndicator color="#023E8A" />
               </View>
-            </Pressable>
-          </>
+            ) : addressesError ? (
+              <View className="rounded-[14px] border border-[#FECACA] bg-white p-3">
+                <Text className="text-[13px] text-[#B91C1C]">{addressesError}</Text>
+                <Pressable className="mt-2 self-start" onPress={() => { void dispatch(fetchAddresses()); }}>
+                  <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Retry</Text>
+                </Pressable>
+              </View>
+            ) : addresses.length === 0 ? (
+              <View className="rounded-[14px] border border-[#E2E8F0] bg-white p-3">
+                <Text className="text-[13px] text-[#64748B]">Add a delivery address to continue.</Text>
+                <Pressable className="mt-2 self-start" onPress={() => router.push('/address-setup')}>
+                  <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Add address</Text>
+                </Pressable>
+              </View>
+            ) : selectedAddress ? (
+              <View className="rounded-[18px]  bg-[#F1F1E] p-3">
+                <View className="flex-row items-center gap-3">
+                  <View className="h-10 w-10 items-center justify-center rounded-[12px] bg-[#023E8A]">
+                    <MapPin size={17} color="#fff" />
+                  </View>
+
+                  <View className="flex-1">
+                    <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
+                      {selectedAddress.line1 || selectedAddress.label}{selectedAddress.isDefault ? ' · Default' : ''}
+                    </Text>
+                    <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
+                      {[selectedAddress.city, selectedAddress.pincode].filter(Boolean).join(', ')}
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    onPress={() => setShowAddressPicker(true)}
+                    className="rounded-full bg-[#023E8A] px-3 py-1.5"
+                  >
+                    <Text className="text-[12px] font-raleway-bold text-[#fff]">Change</Text>
+                  </Pressable>
+                </View>
+
+              </View>
+            ) : null}
+
+            {!isEditing && (
+              <>
+                <Text className="mt-6 text-[16px] font-raleway-bold text-[#111827]">
+                  Select Starting Date
+                </Text>
+
+                <Pressable
+                  onPress={() => setShowDatePicker(true)}
+                  className="mt-3 flex-row items-center justify-between rounded-[18px] bg-[#f1f1ee] py-3.5 pl-4 pr-6"
+                >
+                  <Text className="text-[18px] font-bold text-[#111827]">
+                    {formatDisplayDate(selectedDate)}
+                  </Text>
+                  <View className="h-[1rem] w-[1rem] items-center justify-center rounded-[10px] bg-[#EAF1FF]">
+                    <CalendarDays size={22} color="#023E8A" />
+                  </View>
+                </Pressable>
+              </>
+            )}
+          </View>
         )}
 
         {frequency === 'Daily' && (
@@ -513,7 +603,7 @@ export default function SubscribeScreen() {
       <View className="absolute bottom-0 left-0 right-0 bg-[#f6f5f3] px-4 pb-6 pt-3">
         <Pressable
           onPress={handleSubmit}
-          disabled={subscriptionIsCreating || subscriptionIsUpdating || (!isEditing && !defaultAddress) || selectedSlots.length === 0}
+          disabled={subscriptionIsCreating || subscriptionIsUpdating || (!isEditing && !selectedAddress) || selectedSlots.length === 0}
           className="h-16 items-center justify-center rounded-[30px] bg-[#023E8A]"
         >
           <Text className="text-[20px] font-raleway-bold text-white">
@@ -531,6 +621,64 @@ export default function SubscribeScreen() {
           </Text>
         </View>
       )}
+
+      <Modal
+        visible={showAddressPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAddressPicker(false)}
+      >
+        <View className="flex-1 justify-end bg-black/40">
+          <View className="rounded-t-[26px] bg-white px-4 pb-8 pt-4">
+            <View className="mb-3 h-1.5 w-12 self-center rounded-full bg-[#D1D5DB]" />
+            <Text className="mb-4 text-center text-[20px] font-raleway-bold text-[#111827]">
+              Select Delivery Address
+            </Text>
+
+            <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ gap: 10 }} showsVerticalScrollIndicator>
+              {addresses.map((address: Address) => {
+                const isSelected = selectedAddressId === address.id || (!selectedAddressId && address.isDefault);
+
+                return (
+                  <Pressable
+                    key={address.id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
+                    onPress={() => {
+                      setSelectedAddressId(address.id);
+                      setShowAddressPicker(false);
+                    }}
+                    className={`min-h-[72px] flex-row items-center gap-3 rounded-[12px] border p-3 ${isSelected ? 'border-[#023E8A] bg-[#EEF3FF]' : 'border-[#E2E8F0] bg-white'}`}
+                  >
+                    <MapPin size={17} color={isSelected ? '#023E8A' : '#64748B'} />
+                    <View className="flex-1">
+                      <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
+                        {address.line1 || address.label}{address.isDefault ? ' · Default' : ''}
+                      </Text>
+                      <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
+                        {[address.city, address.pincode].filter(Boolean).join(', ')}
+                      </Text>
+                      {address.deliveryInstructions ? (
+                        <Text numberOfLines={1} className="mt-0.5 text-[11px] text-[#64748B]">
+                          {address.deliveryInstructions}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {isSelected ? <Check size={18} color="#023E8A" /> : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <Pressable
+              className="mt-4 h-[50px] items-center justify-center rounded-full bg-[#023E8A]"
+              onPress={() => setShowAddressPicker(false)}
+            >
+              <Text className="text-[18px] font-raleway-bold text-white">Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showDatePicker}

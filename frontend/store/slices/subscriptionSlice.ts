@@ -62,7 +62,9 @@ type SubscriptionCreateInput = {
   };
 };
 
-type SubscriptionScheduleInput = Omit<SubscriptionCreateInput, 'productId' | 'addressId' | 'startDate'>;
+type SubscriptionScheduleInput = Omit<SubscriptionCreateInput, 'productId' | 'addressId' | 'startDate'> & {
+  addressId?: string;
+};
 
 const mapSlot = (slot?: string | null): 'MORNING' | 'EVENING' | undefined => {
   if (slot === 'EVENING' || slot === 'MORNING') return slot;
@@ -240,6 +242,7 @@ export const updateSubscriptionSchedule = createAsyncThunk<
         frequency,
         dailySlots: [...new Set(input.dailySlots.map((slot) => slot.toString().toUpperCase()))],
       };
+      if (input.addressId) payload.addressId = input.addressId;
       if (input.frequency === 'Daily') payload.dailyQuantity = input.dailyQuantity ?? 1;
       if (input.frequency === 'Alternate') payload.alternateConfig = input.alternateConfig;
       if (input.frequency === 'Custom') payload.customConfig = input.customConfig;

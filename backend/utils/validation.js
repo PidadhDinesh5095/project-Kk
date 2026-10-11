@@ -121,6 +121,7 @@ const schemas = {
     reason: Joi.string().max(200).allow('', null),
   }),
   updateSubscriptionSchedule: Joi.object({
+    addressId: uuid.optional(),
     frequency: Joi.string().valid('DAILY', 'ALTERNATE', 'CUSTOM').required(),
     dailySlots: Joi.array().items(slot).min(1).max(2).unique().required(),
     dailyQuantity: Joi.when('frequency', {

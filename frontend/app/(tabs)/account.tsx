@@ -13,8 +13,13 @@ import {
   Calendar,
   ChevronRight,
   CreditCard,
+  FileText,
+  PauseCircle,
+  Pencil,
   MapPin,
+  Receipt,
   Repeat,
+  ShieldCheck,
   Wallet,
 } from 'lucide-react-native';
 import {
@@ -41,6 +46,7 @@ export default function AccountScreen() {
     subscriptionCountsIsLoading,
   } = useFreshStore();
   const profileName = [profile.details.firstName, profile.details.lastName].filter(Boolean).join(' ') || user.name;
+  const needsProfileCompletion = profile.hasLoaded && !profile.profileCompleted;
 
   const {isLoggingOut} = user;
 
@@ -69,11 +75,11 @@ export default function AccountScreen() {
   };
 
   return (
-    <View className="flex-1 bg-[#F7F9FC]">
+    <View className="flex-1 bg-white">
 
       {/* Top Bar */}
-      <View className="mb-2 px-5">
-        <Text className="text-[22px] font-bold text-[#111827]">
+      <View className="my-2 px-5">
+        <Text className="text-[24px] font-raleway-bold text-[#111827]">
           Account
         </Text>
       </View>
@@ -86,37 +92,42 @@ export default function AccountScreen() {
       >
 
         {/* Profile Card */}
-        <View className="mb-4 flex-row items-center gap-[14px] rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
+        <View className="mb-3 flex-row items-center gap-[14px] rounded-[16px] bg-[#023E8A] p-4">
 
-          {/* Avatar */}
-          <View className="h-12 w-12 items-center justify-center rounded-full bg-[#4a5373]">
-            <Text className="text-[20px] font-bold  text-white">
-              {profileName[0]}
-            </Text>
-          </View>
+          
 
           {/* User Details */}
           <View className="flex-1">
-            <Text className="text-[16px] font-bold text-[#7389b6]">
-              {profileName}
+            <Text className="text-[26px] my-1 font-raleway-bold text-white">
+              {needsProfileCompletion ? 'Complete your profile' : profileName || 'Your profile'}
             </Text>
 
-            <Text className="mt-[2px] text-[13px] text-[#64748B]">
-              {user.phone}
+            <Text className="my-1 ml-1 text-[19px] font-bold text-white">
+              +91 {user.phone}
             </Text>
           </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={needsProfileCompletion ? 'Complete profile' : 'Edit profile'}
+            hitSlop={10}
+            className="h-10 w-10 items-center justify-center rounded-full"
+            onPress={() => router.push('/complete-profile')}
+          >
+            <Pencil size={20} color="#FFFFFF" />
+          </Pressable>
         </View>
 
         {/* Stats */}
-        <View className="mb-5 flex-row rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
+        <View className="mb-3 flex-row rounded-[16px]  bg-gray-100 p-[14px]">
 
           {/* Active Subs */}
           <View className="flex-1 items-center">
-            <Text className="text-[18px] font-bold text-[#111827]">
+            <Text className="text-[18px] font-raleway-bold text-[#111827]">
               {subscriptionCounts.active}
             </Text>
 
-            <Text className="mt-[2px] text-[11px] text-[#64748B]">
+            <Text className="mt-[2px] text-[11px] font-raleway-semibold text-[#64748B]">
               Active Subs
             </Text>
           </View>
@@ -126,11 +137,11 @@ export default function AccountScreen() {
 
           {/* Wallet */}
           <View className="flex-1 items-center">
-            <Text className="text-[18px] font-bold text-[#111827]">
+            <Text className="text-[18px] font-raleway-bold text-[#111827]">
               ₹{walletBalance}
             </Text>
 
-            <Text className="mt-[2px] text-[11px] text-[#64748B]">
+            <Text className="mt-[2px] text-[11px] font-raleway-semibold text-[#64748B]">
               Wallet
             </Text>
           </View>
@@ -140,118 +151,165 @@ export default function AccountScreen() {
 
           {/* Orders */}
           <View className="flex-1 items-center">
-            <Text className="text-[18px] font-bold text-[#111827]">
+            <Text className="text-[18px] font-raleway-bold text-[#111827]">
               4
             </Text>
 
-            <Text className="mt-[2px] text-[11px] text-[#64748B]">
+            <Text className="mt-[2px] text-[11px] font-raleway-semibold text-[#64748B]">
               Orders
             </Text>
           </View>
         </View>
 
-        {/* Account Settings */}
-        <SectionTitle title="Account Settings" />
+       
 
         {/* Subscriptions */}
         <Pressable
-          className="mb-[10px] flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px]  bg-gray-100 p-[14px]"
           onPress={() => router.push('/subscriptions')}
         >
           <View className="flex-row items-center gap-3">
             <Repeat size={20} color="#023E8A" />
 
             <View>
-              <Text className="text-[14px] font-bold text-[#111827]">
+              <Text className="text-[14px] font-raleway-bold text-[#111827]">
                 Subscriptions
               </Text>
-              <Text className="mt-0.5 text-[12px] text-[#64748B]">
-                {subscriptionCounts.total} saved
-              </Text>
+              
             </View>
           </View>
 
-          <ChevronRight size={18} color="#64748B" />
+          <ChevronRight size={18} color="#000000" />
         </Pressable>
 
         {/* Delivery Addresses */}
         <Pressable
-          className="mb-[10px] flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px]  bg-gray-100 p-[14px]"
           onPress={() => router.push('/addresses')}
         >
           <View className="flex-row items-center gap-3">
             <MapPin size={20} color="#023E8A" />
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">
               Delivery Addresses
             </Text>
           </View>
 
-          <ChevronRight size={18} color="#64748B" />
+          <ChevronRight size={18} color="#000000" />
         </Pressable>
 
         {/* Payment Methods */}
         <Pressable
-          className="mb-[10px] flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px]  bg-gray-100 p-[14px]"
           onPress={() => router.push('/payment')}
         >
           <View className="flex-row items-center gap-3">
             <CreditCard size={20} color="#023E8A" />
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">
               Payment Methods
             </Text>
           </View>
 
-          <ChevronRight size={18} color="#64748B" />
+          <ChevronRight size={18} color="#000000" />
         </Pressable>
 
         {/* Wallet */}
         <Pressable
-          className="mb-[10px] flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px]  bg-gray-100 p-[14px]"
           onPress={() => router.push('/wallet')}
         >
           <View className="flex-row items-center gap-3">
             <Wallet size={20} color="#023E8A" />
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">
               Wallet
             </Text>
           </View>
 
-          <ChevronRight size={18} color="#64748B" />
+          <ChevronRight size={18} color="#000000" />
         </Pressable>
 
         {/* Notifications */}
         <Pressable
-          className="mb-[10px] flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px]  bg-gray-100 p-[14px]"
           onPress={() => router.push('/notifications')}
         >
           <View className="flex-row items-center gap-3">
             <Bell size={20} color="#023E8A" />
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">
               Notifications
             </Text>
           </View>
 
-          <ChevronRight size={18} color="#64748B" />
+          <ChevronRight size={18} color="#000000" />
         </Pressable>
 
         {/* Order History */}
         <Pressable
-          className="mb-[10px] flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px]  bg-gray-100 p-[14px]"
           onPress={() => router.push('/(tabs)/orders')}
         >
           <View className="flex-row items-center gap-3">
             <Calendar size={20} color="#023E8A" />
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">
               Order History
             </Text>
           </View>
 
-          <ChevronRight size={18} color="#64748B" />
+          <ChevronRight size={18} color="#000000" />
+        </Pressable>
+
+       
+
+        {/* Transaction History */}
+        <Pressable
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px] bg-gray-100 p-[14px]"
+          onPress={() => router.push('/wallet')}
+        >
+          <View className="flex-row items-center gap-3">
+            <Receipt size={20} color="#023E8A" />
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">Transaction History</Text>
+          </View>
+          <ChevronRight size={18} color="#000000" />
+        </Pressable>
+
+        {/* Pause Deliveries */}
+        <Pressable
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px] bg-gray-100 p-[14px]"
+          onPress={() => router.push('/subscriptions')}
+        >
+          <View className="flex-row items-center gap-3">
+            <PauseCircle size={20} color="#023E8A" />
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">Pause Deliveries</Text>
+          </View>
+          <ChevronRight size={18} color="#000000" />
+        </Pressable>
+
+        {/* Privacy Policy */}
+        <Pressable
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px] bg-gray-100 p-[14px]"
+          onPress={() => router.push('/privacy-policy')}
+        >
+          <View className="flex-row items-center gap-3">
+            <ShieldCheck size={20} color="#023E8A" />
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">Privacy Policy</Text>
+          </View>
+          <ChevronRight size={18} color="#000000" />
+        </Pressable>
+
+        {/* Terms */}
+        <Pressable
+          className="mb-[10px] flex-row items-center justify-between rounded-[14px] bg-gray-100 p-[14px]"
+          onPress={() => router.push('/terms')}
+        >
+          <View className="flex-row items-center gap-3">
+            <FileText size={20} color="#023E8A" />
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">Terms & Conditions</Text>
+          </View>
+          <ChevronRight size={18} color="#000000" />
         </Pressable>
 
         {/* Logout */}
@@ -264,7 +322,7 @@ export default function AccountScreen() {
         </View>
 
         {/* Version */}
-        <Text className="mt-5 text-center text-[11px] text-[#64748B]">
+        <Text className="mt-5 text-center text-[11px] font-raleway-medium text-[#64748B]">
           Dinesh Farms v1.0.0
         </Text>
       </ScrollView>
