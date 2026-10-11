@@ -120,6 +120,34 @@ const schemas = {
   pauseSubscription: Joi.object({
     reason: Joi.string().max(200).allow('', null),
   }),
+  updateSubscriptionSchedule: Joi.object({
+    frequency: Joi.string().valid('DAILY', 'ALTERNATE', 'CUSTOM').required(),
+    dailySlots: Joi.array().items(slot).min(1).max(2).unique().required(),
+    dailyQuantity: Joi.when('frequency', {
+      is: 'DAILY',
+      then: Joi.number().integer().min(1).max(50).required(),
+      otherwise: Joi.forbidden(),
+    }),
+    alternateConfig: Joi.when('frequency', {
+      is: 'ALTERNATE',
+      then: Joi.object({
+        startDateQuantity: Joi.number().integer().min(1).max(50).required(),
+        succeedingDayQuantity: Joi.number().integer().min(1).max(50).required(),
+      }).required(),
+      otherwise: Joi.forbidden(),
+    }),
+    customConfig: Joi.when('frequency', {
+      is: 'CUSTOM',
+      then: Joi.object({
+        selectedDays: Joi.array().items(Joi.string().valid('SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA')).min(1).unique().required(),
+        quantityPerDay: Joi.object().pattern(
+          Joi.string().valid('SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'),
+          Joi.number().integer().min(1).max(50)
+        ).required(),
+      }).required(),
+      otherwise: Joi.forbidden(),
+    }),
+  }),
   skipDates: Joi.object({
     dates: Joi.array().items(Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).custom((value, helpers) => {
       const match = /^\d{4}-\d{2}-\d{2}$/.exec(value);

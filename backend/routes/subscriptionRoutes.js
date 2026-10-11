@@ -13,6 +13,8 @@ router.get('/', subscription.listSubscriptions);
 router.get('/:id', subscription.getSubscriptionById);
 router.patch('/:id/pause', validate(schemas.pauseSubscription), subscription.pauseSubscription);
 router.patch('/:id/resume', subscription.resumeSubscription);
+router.patch('/:id/schedule', validate(schemas.updateSubscriptionSchedule), subscription.updateSubscriptionSchedule);
+router.patch('/:id/restart', subscription.restartSubscription);
 router.patch('/:id/skip', validate(schemas.skipDates), subscription.skipDates);
 router.delete('/:id', subscription.cancelSubscription);
 

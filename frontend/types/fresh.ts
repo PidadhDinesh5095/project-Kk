@@ -51,6 +51,7 @@ export interface Subscription {
   skippedDates?: string[];
   pausedRange?: { from: string; to: string } | null;
   pausedRanges?: SubscriptionPauseRange[];
+  cancellationReason?: string | null;
   nextDeliveryDate?: string;
   createdDate?: string;
   userId?: string;

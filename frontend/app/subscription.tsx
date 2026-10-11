@@ -1,5 +1,5 @@
 
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback } from 'react';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import {
@@ -9,6 +9,7 @@ import {
   Clock,
   MapPin,
   Pause,
+  Play,
   Repeat,
   SkipForward,
 } from 'lucide-react-native';
@@ -16,7 +17,6 @@ import {
   colors,
   PrimaryButton,
   SectionTitle,
-  StatusPill,
 } from '@/components/FreshComponents';
 import { useFreshStore } from '@/store/useFreshStore';
 import { formatDate } from '@/lib/cutoff';
@@ -26,23 +26,37 @@ import { SubscriptionSkeleton } from '@/components/SubscriptionSkeleton';
 export default function SubscriptionScreen() {
   const {
     subscription,
+    subscriptions,
     subscriptionIsLoading,
     subscriptionHasLoaded,
     subscriptionError,
     subscriptionIsUpdating,
     addresses,
     fetchSubscriptions,
-    resumeSubscription,
+    fetchSubscriptionById,
+    restartSubscription,
     products,
   } = useFreshStore();
 
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const routeId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : undefined;
+  const currentSubscription = routeId ? subscriptions.find((item) => item.id === routeId) ?? subscription : subscription;
+
   useFocusEffect(
     useCallback(() => {
+      if (routeId) {
+        const exists = subscriptions.some((item) => item.id === routeId);
+        if (!exists && !subscriptionIsLoading) {
+          void fetchSubscriptionById(routeId);
+        }
+        return;
+      }
+
       if (!subscriptionHasLoaded && !subscriptionIsLoading) void fetchSubscriptions();
-    }, [fetchSubscriptions, subscriptionHasLoaded, subscriptionIsLoading]),
+    }, [fetchSubscriptionById, fetchSubscriptions, routeId, subscriptionHasLoaded, subscriptionIsLoading, subscriptions]),
   );
 
-  if (subscriptionIsLoading || !subscriptionHasLoaded) {
+  if (routeId && !currentSubscription && (subscriptionIsLoading || !subscriptionHasLoaded)) {
     return (
       <View className="flex-1 bg-[#F7F9FC]">
         <Pressable className="ml-4 mt-2" onPress={() => router.back()} hitSlop={12}>
@@ -56,7 +70,23 @@ export default function SubscriptionScreen() {
     );
   }
 
-  if (!subscription) {
+  if (!routeId && (subscriptionIsLoading || !subscriptionHasLoaded)) {
+    return (
+      <View className="flex-1 bg-[#F7F9FC]">
+        <Pressable className="ml-4 mt-2" onPress={() => router.back()} hitSlop={12}>
+          <ArrowLeft size={28} color="#111827" />
+        </Pressable>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}>
+          <Text className="mb-4 mt-2 font-raleway-bold text-[22px] text-[#111827]">My Subscription</Text>
+          <SubscriptionSkeleton variant="detail" />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  const activeSubscription = currentSubscription ?? subscription;
+
+  if (!activeSubscription) {
     return (
       <View className="flex-1 items-center justify-center bg-[#F7F9FC] px-6">
         <Text className="font-raleway-bold text-[16px] text-[#111827]">Subscription not found</Text>
@@ -68,26 +98,26 @@ export default function SubscriptionScreen() {
   }
 
   const product = products.find(
-    (productItem: Product) => productItem.id === subscription.productId
+    (productItem: Product) => productItem.id === activeSubscription.productId
   );
 
   const addr = addresses.find(
-    (addressItem: Address) => addressItem.id === subscription.deliveryAddressId
+    (addressItem: Address) => addressItem.id === activeSubscription.deliveryAddressId
   ) ?? addresses[0];
-  const nextDeliveryDate = subscription.nextDeliveryDate ?? subscription.startDate ?? new Date().toISOString();
-  const slots = (subscription.dailySlots ?? [])
+  const nextDeliveryDate = activeSubscription.nextDeliveryDate ?? activeSubscription.startDate ?? new Date().toISOString();
+  const slots = (activeSubscription.dailySlots ?? [])
     .map((slot) => slot === 'MORNING' ? 'Morning' : 'Evening');
-  const timeSlot = slots.join(' + ') || subscription.timeSlot || 'Morning';
-  const productImage = subscription.productImage ?? product?.mainImgNobg ?? product?.images?.find(Boolean);
-  const quantitySummary = subscription.frequency === 'Alternate' && subscription.alternateConfig
-    ? `${subscription.alternateConfig.startDateQuantity} on first day, ${subscription.alternateConfig.succeedingDayQuantity} on alternate days`
-    : `${subscription.dailyQuantity ?? subscription.quantityPerDelivery ?? 1} per delivery`;
+  const timeSlot = slots.join(' + ') || activeSubscription.timeSlot || 'Morning';
+  const productImage = activeSubscription.productImage ?? product?.mainImgNobg ?? product?.images?.find(Boolean);
+  const quantitySummary = activeSubscription.frequency === 'Alternate' && activeSubscription.alternateConfig
+    ? `${activeSubscription.alternateConfig.startDateQuantity} on first day, ${activeSubscription.alternateConfig.succeedingDayQuantity} on alternate days`
+    : `${activeSubscription.dailyQuantity ?? activeSubscription.quantityPerDelivery ?? 1} per delivery`;
   const dayNames: Record<string, string> = {
     SU: 'Sunday', MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday',
     TH: 'Thursday', FR: 'Friday', SA: 'Saturday',
   };
-  const customSchedule = subscription.customConfig?.selectedDays?.map((day) => {
-    const dayQuantity = subscription.customConfig?.quantityPerDay?.[day] ?? 1;
+  const customSchedule = activeSubscription.customConfig?.selectedDays?.map((day) => {
+    const dayQuantity = activeSubscription.customConfig?.quantityPerDay?.[day] ?? 1;
     return `${dayNames[day] ?? day}: ${dayQuantity}`;
   }).join(' · ');
 
@@ -106,34 +136,31 @@ export default function SubscriptionScreen() {
           paddingBottom: 100,
         }}
       >
-        <View className="mt-4 rounded-[14px] border border-[#E2E8F0] bg-white p-4">
-          <View className="flex-row items-center justify-between gap-4">
+        <View className="mt-4 rounded-[14px] border border-[#E2E8F0] bg-white p-2 pl-4">
+          <View className="flex-row items-center gap-6">
             {productImage ? (
               <Image
                 source={{ uri: productImage }}
-                style={{ width: 78, height: 78, borderRadius: 10, }}
+                style={{ width: 68, height: 68, borderRadius: 10, }}
                 resizeMode="cover"
               />
             ) : (
               <View
-                style={{ width: 78, height: 78, borderRadius: 10 }}
-                className="items-center justify-center "
+                style={{ width: 68, height: 68, borderRadius: 10 }}
+                className="items-center "
               >
                 <Repeat size={28} color={colors.primary} />
               </View>
             )}
-            <View className="min-w-0 flex-1">
-              <StatusPill label={subscription.status} />
-              <Text className="mt-2 font-raleway-bold text-[18px] text-[#111827]">
-                {product?.name ?? subscription.productName ?? 'Product'}
+            <View className="min-w-0 flex-1 justify-around" style={{ height: 68,}}>
+              <Text numberOfLines={1} className="font-raleway-bold text-[18px] text-[#111827]">
+                {product?.name ?? activeSubscription.productName ?? 'Product'}
               </Text>
-              {!!product?.size && (
-                <Text className="mt-1 font-raleway-medium text-[13px] text-[#64748B]">
-                  {product.size}
-                </Text>
-              )}
-              <Text className="mt-2 font-raleway-semibold text-[13px] text-[#023E8A]">
-                {subscription.frequency} subscription
+              <Text numberOfLines={1} className="font-raleway-semibold text-[13px] text-[#023E8A]">
+                {product?.size ? `${product.size}` : ''}
+              </Text>
+              <Text numberOfLines={1} className="font-raleway-semibold text-[13px] text-[#023E8A]">
+                {activeSubscription.frequency ? `${activeSubscription.frequency} Plan` : ''}
               </Text>
             </View>
           </View>
@@ -146,11 +173,11 @@ export default function SubscriptionScreen() {
             <MapPin size={16} color={colors.primary} />
 
             <View className="flex-1">
-              <Text className="font-raleway-medium text-[12px] text-[#64748B]">
+              <Text className="font-raleway-medium text-[13px] text-[#64748B]">
                 Address
               </Text>
 
-              <Text className="mt-0.5 font-raleway-bold text-[14px] text-[#111827]">
+              <Text className="mt-0.5 font-raleway-bold text-[15px] text-[#111827]">
                 {addr ? `${addr.label} · ${addr.line1}, ${addr.city}` : 'Add a delivery address'}
               </Text>
             </View>
@@ -162,18 +189,18 @@ export default function SubscriptionScreen() {
             <Repeat size={16} color={colors.primary} />
 
             <View className="flex-1">
-              <Text className="font-raleway-medium text-[11px] text-[#64748B]">
+              <Text className="font-raleway-medium text-[13px] text-[#64748B]">
                 Schedule
               </Text>
 
-              <Text className="mt-0.5 font-raleway-bold text-[14px] text-[#111827]">
-                {subscription.frequency}{subscription.planTier ? ` · ${subscription.planTier}` : ''}
+              <Text className="mt-0.5 font-raleway-bold text-[15px] text-[#111827]">
+                {activeSubscription.frequency}{activeSubscription.planTier ? ` · ${activeSubscription.planTier}` : ''}
               </Text>
-              <Text className="mt-1 font-raleway-medium text-[12px] text-black">
+              <Text className="mt-1 font-raleway-medium text-[13px] text-black">
                 {quantitySummary}
               </Text>
-              {subscription.frequency === 'Custom' && !!customSchedule && (
-                <Text className="mt-1 font-raleway-bold text-[12px] text-[#64748B]">
+              {activeSubscription.frequency === 'Custom' && !!customSchedule && (
+                <Text className="mt-1 font-raleway-bold text-[13px] text-[#64748B]">
                   {customSchedule}
                 </Text>
               )}
@@ -186,11 +213,11 @@ export default function SubscriptionScreen() {
             <Clock size={16} color={colors.primary} />
 
             <View className="flex-1">
-              <Text className="font-raleway-medium text-[11px] text-[#64748B]">
+              <Text className="font-raleway-medium text-[13px] text-[#64748B]">
                 Delivery slots
               </Text>
 
-              <Text className="mt-0.5 font-raleway-bold text-[14px] text-[#111827]">
+              <Text className="mt-0.5 font-raleway-bold text-[15px] text-[#111827]">
                 {timeSlot}
               </Text>
             </View>
@@ -209,92 +236,111 @@ export default function SubscriptionScreen() {
           </View>
         </View>
 
-        <SectionTitle title="Manage Subscription" />
+        {activeSubscription.status !== 'Cancelled' && (
+          <>
+            <SectionTitle title="Manage Subscription" />
 
-        <Pressable
-          className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
-          onPress={() => router.push('/subscription/pause')}
-        >
-          <View className="flex-row items-center gap-3">
-            <View className="h-9 w-9 items-center justify-center rounded-[10px] bg-[#FEF3C7]">
-              <Pause size={18} color={colors.amber} />
-            </View>
+            <Pressable
+              className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+              onPress={() => router.push({ pathname: '/subscription/pause', params: { id: activeSubscription.id } })}
+            >
+              <View className="flex-row items-center gap-3">
+                <View className={`h-9 w-9 items-center justify-center rounded-[10px] ${activeSubscription.status === 'Paused' ? 'bg-[#FFF7ED]' : 'bg-[#FEF3C7]'}`}>
+                  {activeSubscription.status === 'Paused'
+                    ? <Play size={18} color="#B45309" />
+                    : <Pause size={18} color={colors.amber} />}
+                </View>
 
-            <Text className="font-raleway-bold text-[14px] text-[#111827]">
-              Pause Subscription
-            </Text>
-          </View>
+                <Text className="font-raleway-bold text-[16px] text-[#111827]">
+                  {activeSubscription.status === 'Paused' ? 'Resume Subscription' : 'Pause Subscription'}
+                </Text>
+              </View>
 
-          <ChevronRight size={18} color={colors.muted} />
-        </Pressable>
+              <ChevronRight size={18} color={colors.muted} />
+            </Pressable>
 
-        <Pressable
-          className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
-          onPress={() => router.push('/subscription/skip')}
-        >
-          <View className="flex-row items-center gap-3">
-            <View className="h-9 w-9 items-center justify-center rounded-[10px] bg-[#EEF3FF]">
-              <SkipForward size={18} color={colors.primary} />
-            </View>
+            {activeSubscription.status === 'Active' && (
+              <>
+                <Pressable
+                  className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+                  onPress={() => router.push({ pathname: '/subscription/skip', params: { id: activeSubscription.id } })}
+                >
+                  <View className="flex-row items-center gap-3">
+                    <View className="h-9 w-9 items-center justify-center rounded-[10px] bg-[#EEF3FF]">
+                      <SkipForward size={18} color={colors.primary} />
+                    </View>
 
-            <Text className="font-raleway-bold text-[14px] text-[#111827]">
-              Skip a Delivery
-            </Text>
-          </View>
+                    <Text className="font-raleway-bold text-[16px] text-[#111827]">
+                      Skip a Delivery
+                    </Text>
+                  </View>
 
-          <ChevronRight size={18} color={colors.muted} />
-        </Pressable>
+                  <ChevronRight size={18} color={colors.muted} />
+                </Pressable>
 
-        <Pressable
-          className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
-          onPress={() => router.push('/subscription/manage')}
-        >
-          <View className="flex-row items-center gap-3">
-            <View className="h-9 w-9 items-center justify-center rounded-[10px] bg-[#EEF3FF]">
-              <Calendar size={18} color={colors.primary} />
-            </View>
+                <Pressable
+                  className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+                  onPress={() => router.push({
+                    pathname: '/subscribe/[id]',
+                    params: { id: activeSubscription.productId, subscriptionId: activeSubscription.id },
+                  })}
+                >
+                  <View className="flex-row items-center gap-3">
+                    <View className="h-9 w-9 items-center justify-center rounded-[10px] bg-[#EEF3FF]">
+                      <Calendar size={18} color={colors.primary} />
+                    </View>
 
-            <Text className="font-raleway-bold text-[14px] text-[#111827]">
-              Change Schedule
-            </Text>
-          </View>
+                    <Text className="font-raleway-bold text-[16px] text-[#111827]">
+                      Change Schedule
+                    </Text>
+                  </View>
 
-          <ChevronRight size={18} color={colors.muted} />
-        </Pressable>
+                  <ChevronRight size={18} color={colors.muted} />
+                </Pressable>
+              </>
+            )}
 
-        <View className="mt-6">
-          {subscriptionError && (
-            <Text className="mb-3 text-center font-raleway-semibold text-[13px] text-[#B91C1C]">
-              {subscriptionError}
-            </Text>
-          )}
-          {subscription.status === 'Active' ||
-          subscription.status === 'Paused' ? (
+            <View className="mt-6">
+              {subscriptionError && (
+                <Text className="mb-3 text-center font-raleway-semibold text-[13px] text-[#B91C1C]">
+                  {subscriptionError}
+                </Text>
+              )}
             <Pressable
               className="items-center py-3.5"
-              onPress={() => router.push('/subscription/cancel')}
+              onPress={() => router.push({ pathname: '/subscription/cancel', params: { id: activeSubscription.id } })}
             >
               <Text className="font-raleway-bold text-[14px] text-[#EF4444] underline">
                 Cancel Subscription
               </Text>
             </Pressable>
-          ) : (
-            <Text className="text-center font-raleway-medium text-[13px] text-[#64748B]">This subscription is cancelled.</Text>
-          )}
-          {subscription.status === 'Paused' && (
+            </View>
+          </>
+        )}
+
+        {activeSubscription.status === 'Cancelled' && (
+          <View className="mt-6">
+            <Text className="mb-3 text-center font-raleway-medium text-[13px] text-[#64748B]">
+              This subscription was cancelled.
+            </Text>
+            {subscriptionError && (
+              <Text className="mb-3 text-center font-raleway-semibold text-[13px] text-[#B91C1C]">
+                {subscriptionError}
+              </Text>
+            )}
             <PrimaryButton
-              label={subscriptionIsUpdating ? 'Resuming...' : 'Resume Subscription'}
+              label={subscriptionIsUpdating ? 'Restarting...' : 'Restart Subscription'}
               disabled={subscriptionIsUpdating}
               onPress={async () => {
                 try {
-                  await resumeSubscription(subscription.id).unwrap();
+                  await restartSubscription(activeSubscription.id).unwrap();
                 } catch {
-                  // The error state above keeps the failed operation visible.
+                  // Keep the failure visible through the subscription error state.
                 }
               }}
             />
-          )}
-        </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );

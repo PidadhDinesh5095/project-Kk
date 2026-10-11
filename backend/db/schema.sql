@@ -167,8 +167,12 @@ CREATE TABLE subscriptions (
   skipped_dates     DATE[] NOT NULL DEFAULT '{}',
 
   status            TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','PAUSED','CANCELLED')),
+  cancellation_reason TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+
+
 ALTER TABLE subscriptions
   ADD COLUMN IF NOT EXISTS daily_slots TEXT[] NOT NULL DEFAULT ARRAY['MORNING']::TEXT[]
   CHECK (cardinality(daily_slots) > 0 AND daily_slots <@ ARRAY['MORNING','EVENING']::TEXT[]);

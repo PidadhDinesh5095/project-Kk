@@ -1,9 +1,9 @@
 
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback } from 'react';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { ArrowLeft, Check, Repeat, SkipForward, X } from 'lucide-react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Repeat, SkipForward, X } from 'lucide-react-native';
 import { colors, PrimaryButton, StatusPill } from '@/components/FreshComponents';
 import { useFreshStore } from '@/store/useFreshStore';
 import { formatDate } from '@/lib/cutoff';
@@ -49,40 +49,50 @@ function getUpcomingDeliveryDates(subscription: Subscription | null) {
 export default function SkipDeliveryScreen() {
   const {
     subscription,
+    subscriptions,
     subscriptionIsLoading,
     subscriptionHasLoaded,
     fetchSubscriptions,
+    fetchSubscriptionById,
     skipSubscriptionDates,
     subscriptionIsUpdating,
     subscriptionError,
     products,
   } = useFreshStore();
+
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const routeId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : undefined;
+  const currentSubscription = routeId ? subscriptions.find((item) => item.id === routeId) ?? subscription : subscription;
   useFocusEffect(
     useCallback(() => {
+      if (routeId) {
+        const exists = subscriptions.some((item) => item.id === routeId);
+        if (!exists && !subscriptionIsLoading) void fetchSubscriptionById(routeId);
+        return;
+      }
+
       if (!subscriptionHasLoaded && !subscriptionIsLoading) void fetchSubscriptions();
-    }, [fetchSubscriptions, subscriptionHasLoaded, subscriptionIsLoading]),
+    }, [fetchSubscriptionById, fetchSubscriptions, routeId, subscriptionHasLoaded, subscriptionIsLoading, subscriptions]),
   );
 
-  const product = subscription
-    ? products.find((productItem: Product) => productItem.id === subscription.productId)
+  const activeSubscription = currentSubscription ?? subscription;
+
+  const product = activeSubscription
+    ? products.find((productItem: Product) => productItem.id === activeSubscription.productId)
     : undefined;
-  const deliveryDates = useMemo(() => getUpcomingDeliveryDates(subscription), [subscription]);
-  const skippedSet = useMemo(() => new Set(subscription?.skippedDates ?? []), [subscription]);
+  const productImage = activeSubscription?.productImage ?? product?.mainImgNobg ?? product?.images?.find(Boolean);
+  const deliverySlots = (activeSubscription?.dailySlots ?? [])
+    .map((slot) => slot === 'MORNING' ? 'Morning' : 'Evening')
+    .join(' + ') || activeSubscription?.timeSlot || 'Morning';
+  const deliveryDates = useMemo(() => getUpcomingDeliveryDates(activeSubscription), [activeSubscription]);
+  const skippedSet = useMemo(() => new Set(activeSubscription?.skippedDates ?? []), [activeSubscription]);
 
   const [selected, setSelected] = useState<string[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showingNextMonth, setShowingNextMonth] = useState(false);
 
-  /*
-   * Calendar month is taken from the first backend delivery date.
-   * No month changing.
-   */
-  const calendarDate = useMemo(() => {
-    if (deliveryDates.length === 0) return new Date();
-
-    const [year, month] = deliveryDates[0].split('-').map(Number);
-
-    return new Date(year, month - 1, 1);
-  }, [deliveryDates]);
+  const today = new Date();
+  const calendarDate = new Date(today.getFullYear(), today.getMonth() + (showingNextMonth ? 1 : 0), 1);
 
   const year = calendarDate.getFullYear();
   const month = calendarDate.getMonth();
@@ -148,9 +158,9 @@ export default function SkipDeliveryScreen() {
         : `Apply changes`;
 
   const confirmSkip = async () => {
-    if (!subscription) return;
+    if (!activeSubscription) return;
     try {
-      await skipSubscriptionDates(subscription.id, sortedSelected).unwrap();
+      await skipSubscriptionDates(activeSubscription.id, sortedSelected).unwrap();
       setSelected([]);
       setShowConfirm(false);
       router.back();
@@ -159,36 +169,41 @@ export default function SkipDeliveryScreen() {
     }
   };
 
-  if (subscriptionIsLoading || !subscriptionHasLoaded) {
+  if ((routeId && !activeSubscription && (subscriptionIsLoading || !subscriptionHasLoaded)) || (!routeId && (subscriptionIsLoading || !subscriptionHasLoaded))) {
     return (
       <View className="flex-1 bg-[#F7F9FC] px-5 pt-4">
-        <Text className="mb-4 text-[22px] font-bold text-[#111827]">Skip a Delivery</Text>
+        <Text className="mb-4 font-raleway-bold text-[22px] text-[#111827]">Skip a Delivery</Text>
         <SubscriptionSkeleton variant="skip" />
       </View>
     );
   }
 
-  if (!subscription) {
+  if (!activeSubscription) {
     return (
       <View className="flex-1 items-center justify-center bg-[#F7F9FC] px-6">
-        <Text className="text-[16px] font-bold text-[#111827]">Subscription not found</Text>
+        <Text className="font-raleway-bold text-[16px] text-[#111827]">Subscription not found</Text>
         <Pressable className="mt-4" onPress={() => router.back()}>
-          <Text className="font-bold text-[#023E8A]">Go back</Text>
+          <Text className="font-raleway-bold text-[#023E8A]">Go back</Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-[#F7F9FC]">
+    <View className="flex-1 bg-white">
       <Pressable
-        className="ml-4 mt-2"
+        className="ml-2 mt-2 mb-4"
         onPress={() => router.back()}
         hitSlop={12}
       >
-        <Text className="text-[32px] leading-[30px] text-[#111827]">
+        <View className="flex-row items-center px-4  pt-2">
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
           <ArrowLeft size={28} color="#111827" />
+        </Pressable>
+        <Text className="ml-3 font-raleway-bold text-[22px] text-[#111827]">
+          Skip a Delivery
         </Text>
+      </View>
       </Pressable>
 
       <ScrollView
@@ -197,49 +212,73 @@ export default function SkipDeliveryScreen() {
           paddingBottom: 100,
         }}
       >
-        <Text className="mb-4 mt-2 text-[22px] font-bold text-[#111827]">
-          Skip a Delivery
-        </Text>
+       
 
         {/* Subscription Card */}
-        <View className="rounded-2xl border border-[#E2E8F0] bg-white p-[14px]">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center gap-1 rounded-[10px] bg-[#023E8A] px-2 py-1">
-              <Repeat size={12} color="#fff" />
-
-              <Text className="text-[10px] font-bold text-white">
-                Subscription
+        <View className="rounded-[14px] border border-[#E2E8F0] bg-white p-3">
+          <View className="flex-row items-center ml-2 gap-6">
+            {productImage ? (
+              <Image
+                source={{ uri: productImage }}
+                style={{ width: 68, height: 68, borderRadius: 10 }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                style={{ width: 68, height: 68, borderRadius: 10 }}
+                className="items-center justify-center bg-[#EEF3FF]"
+              >
+                <Repeat size={24} color={colors.primary} />
+              </View>
+            )}
+            <View className="min-w-0 flex-1">
+              <Text numberOfLines={1} className="font-raleway-bold text-[17px] text-[#111827]">
+                {product?.name ?? activeSubscription.productName ?? 'Product'}
+              </Text>
+              <Text className="mt-1 font-raleway-semibold text-[13px] text-[#64748B]">
+                {[product?.size, activeSubscription.frequency].filter(Boolean).join(' · ')}
+              </Text>
+              <Text className="mt-1 font-raleway-medium text-[13px] text-[#64748B]">
+                {deliverySlots} delivery
               </Text>
             </View>
-
-            <StatusPill label={subscription.status} />
+            <StatusPill label={activeSubscription.status} />
           </View>
-
-          <Text className="mt-[10px] text-[18px] font-bold text-[#111827]">
-            {product?.name ?? subscription.productName ?? 'Product'}
-          </Text>
-
-          <Text className="mt-[3px] text-[13px] text-[#64748B]">
-            {subscription.planTier} · {subscription.frequency} ·{' '}
-            {subscription.timeSlot}
-          </Text>
         </View>
 
         {/* Calendar Heading */}
-        <Text className="mb-1 mt-6 text-[15px] font-bold text-[#111827]">
+        <Text className="mb-1 ml-2 mt-3 font-raleway-bold text-[17px] text-[#111827]">
           Select dates to skip
         </Text>
 
-        <Text className="mb-3 text-[12px] text-[#64748B]">
+        <Text className="mb-3 ml-2 font-raleway-medium text-[13px] text-[#64748B]">
           Select your scheduled delivery dates
         </Text>
 
         {/* Calendar */}
         <View className="rounded-2xl border border-[#E2E8F0] bg-white p-4">
           {/* Month */}
-          <Text className="mb-4 text-center text-[17px] font-bold text-[#111827]">
-            {monthName} {year}
-          </Text>
+          <View className="mb-4 flex-row items-center justify-between">
+            <Pressable
+              onPress={() => setShowingNextMonth(false)}
+              disabled={!showingNextMonth}
+              accessibilityLabel="Show current month"
+              className="h-9 w-9 items-center justify-center"
+            >
+              {showingNextMonth && <ChevronLeft size={20} color={colors.primary} />}
+            </Pressable>
+            <Text className="font-raleway-bold text-[19px] text-[#111827]">
+              {monthName} <Text className="font-bold" >{year}</Text>
+            </Text>
+            <Pressable
+              onPress={() => setShowingNextMonth(true)}
+              disabled={showingNextMonth}
+              accessibilityLabel="Show next month"
+              className="h-9 w-9 items-center justify-center"
+            >
+              {!showingNextMonth && <ChevronRight size={20} color={colors.primary} />}
+            </Pressable>
+          </View>
 
           {/* Weekday Header */}
           <View className="mb-2 flex-row">
@@ -249,7 +288,7 @@ export default function SkipDeliveryScreen() {
                   key={day}
                   className="w-[14.285%] items-center"
                 >
-                  <Text className="text-[11px] font-bold text-[#64748B]">
+                  <Text className="font-raleway-semibold text-[12px] text-[#64748B]">
                     {day}
                   </Text>
                 </View>
@@ -280,7 +319,7 @@ export default function SkipDeliveryScreen() {
                   <Pressable
                     disabled={!item.available}
                     onPress={() => toggleDate(item.date)}
-                    className={`h-10 w-10 items-center justify-center rounded-full ${
+                    className={`h-10 w-10 items-center justify-center rounded-[12px] ${
                       isSelected
                         ? 'bg-[#023E8A]'
                         : isSkipped
@@ -291,7 +330,8 @@ export default function SkipDeliveryScreen() {
                     }`}
                   >
                     <Text
-                      className={`text-[13px] font-bold ${
+                      style={{ fontFamily: 'System' }}
+                      className={`text-[13px] ${
                         isSelected
                           ? 'text-white'
                           : isSkipped
@@ -304,9 +344,7 @@ export default function SkipDeliveryScreen() {
                       {item.day}
                     </Text>
 
-                    {isSkipped && !isSelected && (
-                      <View className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-[#F59E0B]" />
-                    )}
+                    
 
                     {isSelected && (
                       <View className="absolute -right-1 -top-1 h-4 w-4 items-center justify-center rounded-full bg-white">
@@ -322,25 +360,25 @@ export default function SkipDeliveryScreen() {
           {/* Legend */}
           <View className="mt-2 flex-row items-center justify-center gap-5 border-t border-[#F1F5F9] pt-3">
             <View className="flex-row items-center gap-2">
-              <View className="h-3 w-3 rounded-full border border-[#023E8A] bg-[#EEF3FF]" />
+              <View className="h-4 w-4 rounded-md border border-[#023E8A] bg-[#EEF3FF]" />
 
-              <Text className="text-[11px] text-[#64748B]">
+              <Text className="font-raleway-medium text-[11px] text-[#64748B]">
                 Delivery date
               </Text>
             </View>
 
             <View className="flex-row items-center gap-2">
-              <View className="h-3 w-3 rounded-full bg-[#023E8A]" />
+              <View className="h-4 w-4 rounded-md bg-[#023E8A]" />
 
-              <Text className="text-[11px] text-[#64748B]">
+              <Text className="font-raleway-medium text-[11px] text-[#64748B]">
                 Selected
               </Text>
             </View>
 
             <View className="flex-row items-center gap-2">
-              <View className="h-3 w-3 rounded-full border border-[#F59E0B] bg-[#FFF7ED]" />
+              <View className="h-4 w-4 rounded-md border border-[#F59E0B] bg-[#FFF7ED]" />
 
-              <Text className="text-[11px] text-[#64748B]">
+              <Text className="font-raleway-medium text-[11px] text-[#64748B]">
                 Skipped
               </Text>
             </View>
@@ -352,7 +390,7 @@ export default function SkipDeliveryScreen() {
           <View className="mt-4 flex-row items-center gap-2 rounded-xl bg-[#EEF3FF] p-3">
             <SkipForward size={14} color={colors.primary} />
 
-            <Text className="text-[13px] font-bold text-[#023E8A]">
+            <Text className="font-raleway-semibold text-[13px] text-[#023E8A]">
               {selectedUnskipCount === selected.length
                 ? `Unskip ${selected.length} ${selected.length === 1 ? 'delivery' : 'deliveries'}`
                 : selectedSkipCount === selected.length
@@ -368,9 +406,9 @@ export default function SkipDeliveryScreen() {
             {sortedSelected.map((date) => (
               <View
                 key={date}
-                className="flex-row items-center gap-1.5 rounded-[10px] border border-[#023E8A] bg-white px-2.5 py-1.5"
+                className="flex-row items-center gap-1.5 rounded-full border border-[#023E8A] bg-white px-2.5 py-1.5"
               >
-                <Text className="text-[12px] font-bold text-[#023E8A]">
+                <Text style={{ fontFamily: 'System' }} className="text-[12px] text-[#023E8A]">
                   {formatDate(date)}
                 </Text>
 
@@ -386,12 +424,12 @@ export default function SkipDeliveryScreen() {
         )}
 
         {/* Info */}
-        <View className="mt-4 rounded-[14px] bg-[#EEF3FF] p-[14px]">
-          <Text className="text-[13px] font-bold text-[#023E8A]">
+        <View className="mt-4 rounded-[17px] bg-[#EEF3FF] p-[14px]">
+          <Text className="font-raleway-bold text-[16px] text-[#023E8A]">
             Skip details
           </Text>
 
-          <Text className="mt-2 text-[12px] leading-5 text-[#111827]">
+          <Text className="mt-2 font-raleway-medium text-[13px] leading-5 text-[#111827]">
             • No delivery on the selected date(s){'\n'}
             • No charge for skipped deliveries{'\n'}
             • Subscription continues normally after{'\n'}
@@ -402,7 +440,7 @@ export default function SkipDeliveryScreen() {
         {/* Button */}
         <View className="mt-7">
           {subscriptionError && (
-            <Text className="mb-3 text-center text-[13px] text-[#B91C1C]">
+            <Text className="mb-3 text-center font-raleway-semibold text-[13px] text-[#B91C1C]">
               {subscriptionError}
             </Text>
           )}
@@ -422,11 +460,11 @@ export default function SkipDeliveryScreen() {
       {showConfirm && (
         <View className="absolute inset-0 items-center justify-center bg-black/40 px-5">
           <View className="w-full rounded-2xl bg-white p-5">
-            <Text className="text-[18px] font-bold text-[#111827]">
+            <Text className="font-raleway-bold text-[18px] text-[#111827]">
               Confirm skipped deliveries
             </Text>
 
-            <Text className="mt-2 text-[13px] leading-5 text-[#64748B]">
+            <Text className="mt-2 font-raleway-medium text-[13px] leading-5 text-[#64748B]">
               {selectedUnskipCount === selected.length
                 ? `These ${selected.length} skipped dates will be restored to your schedule.`
                 : selectedSkipCount === selected.length
@@ -434,7 +472,7 @@ export default function SkipDeliveryScreen() {
                   : `These ${selected.length} selected dates will be updated.`}
             </Text>
 
-            <View className="mt-4 rounded-xl bg-[#F5F7FB] p-3">
+            <View className="mt-4 rounded-full bg-[#F5F7FB] p-3">
               {sortedSelected.map((date) => (
                 <Text
                   key={date}
@@ -448,9 +486,9 @@ export default function SkipDeliveryScreen() {
             <View className="mt-5 flex-row gap-3">
               <Pressable
                 onPress={() => setShowConfirm(false)}
-                className="flex-1 items-center rounded-xl border border-[#E2E8F0] py-3"
+                className="flex-1 items-center rounded-full border border-[#E2E8F0] py-3"
               >
-                <Text className="font-bold text-[#64748B]">
+                <Text className="font-raleway-semibold text-[#64748B]">
                   Cancel
                 </Text>
               </Pressable>
@@ -458,9 +496,9 @@ export default function SkipDeliveryScreen() {
               <Pressable
                 onPress={confirmSkip}
                 disabled={subscriptionIsUpdating}
-                className="flex-1 items-center rounded-xl bg-[#023E8A] py-3"
+                className="flex-1 items-center rounded-full bg-[#023E8A] py-3"
               >
-                <Text className="font-bold text-white">
+                <Text className="font-raleway-bold text-white">
                   {subscriptionIsUpdating ? 'Updating...' : selectedUnskipCount === selected.length ? 'Confirm Unskip' : 'Confirm'}
                 </Text>
               </Pressable>

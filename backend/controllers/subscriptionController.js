@@ -4,6 +4,10 @@ const { publish } = __cjsModule8;
 import topics from '../kafka/topics.js';
 import __cjsModule9 from '../utils/pushNotificationService.js';
 const { sendNotification } = __cjsModule9;
+import __cjsModule10 from '../utils/subscriptionOrderGenerator.js';
+const { computeOccurrences } = __cjsModule10;
+import __cjsModule11 from '../utils/generateOrderId.js';
+const { generateOrderId } = __cjsModule11;
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
@@ -153,6 +157,144 @@ const resumeSubscription = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { subscription: serializeSubscription(rows[0]) }, 200, 'Subscription resumed');
 });
 
+const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
+  const { frequency, dailySlots, dailyQuantity, alternateConfig, customConfig } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: ownedRows } = await client.query(
+      `SELECT status FROM subscriptions WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [req.params.id, req.user.id]
+    );
+    if (ownedRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Subscription not found' });
+    }
+    if (ownedRows[0].status !== 'ACTIVE') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, message: 'Only active subscriptions can change their schedule' });
+    }
+
+    const { rows } = await client.query(
+      `UPDATE subscriptions
+       SET frequency = $1, daily_quantity = $2, daily_slots = $3,
+           alternate_config = $4::jsonb, custom_config = $5::jsonb
+      WHERE id = $6 AND user_id = $7 AND status = 'ACTIVE'
+       RETURNING *`,
+      [
+        frequency,
+        frequency === 'DAILY' ? dailyQuantity : null,
+        dailySlots,
+        frequency === 'ALTERNATE' ? JSON.stringify(alternateConfig) : null,
+        frequency === 'CUSTOM' ? JSON.stringify(customConfig) : null,
+        req.params.id,
+        req.user.id,
+      ]
+    );
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Editable subscription not found' });
+    }
+
+    const subscription = rows[0];
+    if (subscription.status === 'ACTIVE') {
+      const { rows: horizonRows } = await client.query(
+        `SELECT to_char(GREATEST(COALESCE(MAX(delivery_date), CURRENT_DATE), CURRENT_DATE + 1), 'YYYY-MM-DD') AS through_date
+         FROM orders
+         WHERE subscription_id = $1 AND status = 'SCHEDULED' AND delivery_date >= CURRENT_DATE`,
+        [subscription.id]
+      );
+      const { rows: productRows } = await client.query(
+        `SELECT id, slug, price FROM products WHERE id = $1`,
+        [subscription.product_id]
+      );
+      const product = productRows[0];
+      const skippedDates = (subscription.skipped_dates ?? [])
+        .map(normalizeCalendarDate)
+        .filter(Boolean);
+      subscription.skipped_dates = skippedDates;
+      const occurrences = computeOccurrences(
+        subscription,
+        new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
+        horizonRows[0].through_date
+      );
+
+      await client.query(
+        `UPDATE orders SET status = 'CANCELLED'
+         WHERE subscription_id = $1 AND status = 'SCHEDULED' AND delivery_date >= CURRENT_DATE`,
+        [subscription.id]
+      );
+
+      for (const occurrence of occurrences) {
+        const orderId = await generateOrderId(product.slug, occurrence.date);
+        const totalAmount = Number((Number(product.price) * occurrence.qty).toFixed(2));
+        await client.query(
+          `INSERT INTO orders
+            (order_id, user_id, address_id, product_id, quantity, delivery_date, slot,
+             price_at_order, total_amount, status, source, subscription_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SCHEDULED','SUBSCRIPTION',$10)
+           ON CONFLICT (subscription_id, delivery_date, slot) WHERE subscription_id IS NOT NULL
+           DO UPDATE SET quantity = EXCLUDED.quantity, price_at_order = EXCLUDED.price_at_order,
+             total_amount = EXCLUDED.total_amount, status = 'SCHEDULED'`,
+          [
+            orderId, subscription.user_id, subscription.address_id, subscription.product_id,
+            occurrence.qty, occurrence.date, occurrence.slot, product.price, totalAmount, subscription.id,
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return ApiResponse.success(res, { subscription: serializeSubscription(subscription) }, 200, 'Schedule updated');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+});
+
+const restartSubscription = asyncHandler(async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `UPDATE subscriptions
+       SET status = 'ACTIVE', cancellation_reason = NULL
+       WHERE id = $1 AND user_id = $2 AND status = 'CANCELLED' RETURNING *`,
+      [req.params.id, req.user.id]
+    );
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Cancelled subscription not found' });
+    }
+
+    const { rowCount } = await client.query(
+      `UPDATE orders o SET status = 'SCHEDULED'
+       FROM subscriptions s
+       WHERE s.id = $1 AND o.subscription_id = s.id
+         AND o.status = 'CANCELLED' AND o.delivery_date >= CURRENT_DATE
+         AND NOT (o.delivery_date = ANY(s.skipped_dates))`,
+      [req.params.id]
+    );
+
+    await client.query('COMMIT');
+    return ApiResponse.success(
+      res,
+      { subscription: serializeSubscription(rows[0]), restartedOrdersCount: rowCount },
+      200,
+      'Subscription restarted'
+    );
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+});
+
 // Same reasoning as pause: cancels any already-materialized order on exactly
 // those dates, for every slot this subscription uses.
 const normalizeCalendarDate = (value) => {
@@ -179,6 +321,7 @@ const normalizeCalendarDate = (value) => {
 
 const serializeSubscription = (subscription) => ({
   ...subscription,
+  cancellation_reason: subscription.cancellation_reason ?? null,
   skipped_dates: (subscription.skipped_dates ?? [])
     .map((value) => normalizeCalendarDate(value))
     .filter(Boolean),
@@ -199,13 +342,17 @@ const skipDates = asyncHandler(async (req, res) => {
     await client.query('BEGIN');
 
     const currentSubscription = await client.query(
-      `SELECT skipped_dates FROM subscriptions WHERE id = $1 AND user_id = $2`,
+      `SELECT status, skipped_dates FROM subscriptions WHERE id = $1 AND user_id = $2 FOR UPDATE`,
       [req.params.id, req.user.id]
     );
 
     if (currentSubscription.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: 'Subscription not found' });
+    }
+    if (currentSubscription.rows[0].status !== 'ACTIVE') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, message: 'Only active subscriptions can skip deliveries' });
     }
 
     const currentSkipped = (currentSubscription.rows[0].skipped_dates ?? [])
@@ -270,13 +417,20 @@ const skipDates = asyncHandler(async (req, res) => {
 // Past/delivered orders are deliberately left untouched — cancelling a
 // subscription never rewrites history.
 const cancelSubscription = asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason ?? '').trim();
+  if (!reason) {
+    return res.status(400).json({ success: false, message: 'Please select a cancellation reason' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `UPDATE subscriptions SET status = 'CANCELLED' WHERE id = $1 AND user_id = $2 RETURNING *`,
-      [req.params.id, req.user.id]
+      `UPDATE subscriptions
+       SET status = 'CANCELLED', cancellation_reason = $3
+       WHERE id = $1 AND user_id = $2 RETURNING *`,
+      [req.params.id, req.user.id, reason]
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
@@ -301,5 +455,6 @@ const cancelSubscription = asyncHandler(async (req, res) => {
 
 export default {
   createSubscription, listSubscriptions, getSubscriptionCounts, getSubscriptionById,
-  pauseSubscription, resumeSubscription, skipDates, cancelSubscription,
+  pauseSubscription, resumeSubscription, restartSubscription, skipDates, cancelSubscription,
+  updateSubscriptionSchedule,
 };

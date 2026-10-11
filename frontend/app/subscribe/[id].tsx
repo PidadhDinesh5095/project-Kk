@@ -79,9 +79,21 @@ function generateUpcomingDates(startDate: Date) {
 }
 
 export default function SubscribeScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const { products, addresses, createSubscription, subscriptionIsCreating } = useFreshStore();
+  const { id, subscriptionId } = useLocalSearchParams<{ id: string; subscriptionId?: string }>();
+  const {
+    products,
+    addresses,
+    subscriptions,
+    createSubscription,
+    updateSubscriptionSchedule,
+    fetchSubscriptions,
+    subscriptionIsCreating,
+    subscriptionIsUpdating,
+    subscriptionError,
+  } = useFreshStore();
 
+  const editingSubscription = subscriptions.find((item) => item.id === subscriptionId);
+  const isEditing = Boolean(editingSubscription);
   const product = products.find((item: Product) => item.id === id) ?? products[0];
   const defaultAddress = addresses.find((item: Address) => item.isDefault) ?? addresses[0];
 
@@ -100,6 +112,32 @@ export default function SubscribeScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
+  useEffect(() => {
+    if (!editingSubscription) return;
+
+    setFrequency(editingSubscription.frequency === 'Alternate' || editingSubscription.frequency === 'Custom'
+      ? editingSubscription.frequency
+      : 'Daily');
+    setSelectedSlots((editingSubscription.dailySlots ?? ['MORNING'])
+      .map((slot) => slot === 'EVENING' ? 'Evening' : 'Morning'));
+    setDailyQty(editingSubscription.dailyQuantity ?? 1);
+    setStartQty(editingSubscription.alternateConfig?.startDateQuantity ?? 1);
+    setSucceedingQty(editingSubscription.alternateConfig?.succeedingDayQuantity ?? 1);
+
+    const shortDayByCode: Record<string, string> = {
+      SU: 'Su', MO: 'Mo', TU: 'Tu', WE: 'We', TH: 'Th', FR: 'Fr', SA: 'Sa',
+    };
+    const initialDays = (editingSubscription.customConfig?.selectedDays ?? ['MO', 'TU', 'WE'])
+      .map((day) => shortDayByCode[day])
+      .filter(Boolean);
+    setSelectedDays(initialDays);
+    setCustomQty(Object.fromEntries(
+      Object.entries(editingSubscription.customConfig?.quantityPerDay ?? {})
+        .map(([day, quantity]) => [shortDayByCode[day], quantity])
+        .filter(([day]) => Boolean(day)),
+    ));
+  }, [editingSubscription]);
+
   const now = new Date();
   const upcomingDates = useMemo(() => generateUpcomingDates(now), [now]);
   const slotAvailability = useMemo(() => getSlotAvailability(selectedDate, now), [selectedDate, now]);
@@ -114,6 +152,7 @@ export default function SubscribeScreen() {
   );
 
   useEffect(() => {
+    if (isEditing) return;
     const nextAvailable = ['Morning', 'Evening'].filter(
       (slot) => slotAvailability[slot as 'Morning' | 'Evening']
     );
@@ -128,10 +167,10 @@ export default function SubscribeScreen() {
     if (!isValidSelection) {
       setSelectedSlots([nextAvailable[0]]);
     }
-  }, [selectedDate, slotAvailability]);
+  }, [isEditing, selectedDate, slotAvailability]);
 
   const toggleSlot = (slot: string) => {
-    if (!slotAvailability[slot as 'Morning' | 'Evening']) {
+    if (!isEditing && !slotAvailability[slot as 'Morning' | 'Evening']) {
       return;
     }
 
@@ -160,14 +199,11 @@ export default function SubscribeScreen() {
     }));
   };
 
-  const handlePlaceOrder = async () => {
-    if (!defaultAddress || selectedSlots.length === 0) return;
+  const handleSubmit = async () => {
+    if (selectedSlots.length === 0 || (!isEditing && !defaultAddress) || !product) return;
 
-    const action = await createSubscription({
-      productId: product.id,
-      addressId: defaultAddress.id,
+    const schedule = {
       frequency,
-      startDate: getDateKey(selectedDate),
       dailySlots: selectedSlots.map((slot) => slotCodeMap[slot] ?? 'MORNING'),
       dailyQuantity: frequency === 'Daily' ? dailyQty : undefined,
       alternateConfig: frequency === 'Alternate' ? {
@@ -180,10 +216,24 @@ export default function SubscribeScreen() {
           selectedDays.map((day) => [dayCodeMap[day] ?? 'MO', customQty[day] ?? 1])
         ),
       } : undefined,
-    });
+    };
 
-    if (action.type.endsWith('/fulfilled')) {
+    try {
+      if (editingSubscription) {
+        await updateSubscriptionSchedule({ id: editingSubscription.id, ...schedule }).unwrap();
+        await fetchSubscriptions();
+      } else {
+        await createSubscription({
+          productId: product.id,
+          addressId: defaultAddress!.id,
+          startDate: getDateKey(selectedDate),
+          ...schedule,
+        }).unwrap();
+      }
+
       setShowSuccess(true);
+    } catch {
+      // The store exposes the request error alongside the update button.
     }
   };
 
@@ -203,17 +253,16 @@ export default function SubscribeScreen() {
 
   return (
     <View className="flex-1 bg-[#f6f5f3]">
-      <Pressable
-        className="ml-4 mt-4"
-        onPress={() => router.back()}
-        hitSlop={12}
-      >
-        <ArrowLeft size={30} color="#111827" />
-      </Pressable>
+      <View className="flex-row items-center px-4 mb-4 mt-2 pt-2">
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
+          <ArrowLeft size={28} color="#111827" />
+        </Pressable>
+        <Text className="ml-3 font-raleway-bold text-[22px] text-[#111827]">
+          {isEditing ? 'Change Schedule' : 'Subscribe'}
+        </Text>
+      </View>
 
-      <Text className="ml-6 mt-2 text-[22px] font-raleway-bold tracking-[-0.8px] text-[#111827]">
-        Subscribe
-      </Text>
+      
 
       <ScrollView
         contentContainerStyle={{
@@ -221,7 +270,7 @@ export default function SubscribeScreen() {
           paddingBottom: 120,
         }}
       >
-        <View className="mt-3 flex-row items-center justify-between rounded-[14px] bg-[#f1f1ee] pr-4 pl-2 py-2">
+        <View className="mt-1 flex-row items-center justify-between rounded-[14px] bg-[#f1f1ee] pr-4 pl-2 py-2">
           <View className="flex-row items-center gap-4 ">
             <View className="h-[72px] w-[72px]  items-center justify-center overflow-hidden ">
               <Image
@@ -284,7 +333,7 @@ export default function SubscribeScreen() {
         <View className="mt-3 flex-row gap-2">
           {['Morning', 'Evening'].map((slot) => {
             const isSelected = selectedSlots.includes(slot);
-            const disabled = !slotAvailability[slot as 'Morning' | 'Evening'];
+            const disabled = !isEditing && !slotAvailability[slot as 'Morning' | 'Evening'];
 
             return (
               <Pressable
@@ -308,21 +357,25 @@ export default function SubscribeScreen() {
           })}
         </View>
 
-        <Text className="mt-6 text-[16px] font-raleway-bold text-[#111827]">
-          Select Starting Date
-        </Text>
+        {!isEditing && (
+          <>
+            <Text className="mt-6 text-[16px] font-raleway-bold text-[#111827]">
+              Select Starting Date
+            </Text>
 
-        <Pressable
-          onPress={() => setShowDatePicker(true)}
-          className="mt-3 flex-row items-center justify-between rounded-[18px]  bg-[#f1f1ee] pl-4 pr-6 py-3.5"
-        >
-          <Text className="text-[18px] font-bold text-[#111827]">
-            {formatDisplayDate(selectedDate)}
-          </Text>
-          <View className="h-[1rem] w-[1rem] items-center justify-center rounded-[10px] bg-[#EAF1FF]">
-            <CalendarDays size={22} color="#023E8A" />
-          </View>
-        </Pressable>
+            <Pressable
+              onPress={() => setShowDatePicker(true)}
+              className="mt-3 flex-row items-center justify-between rounded-[18px] bg-[#f1f1ee] py-3.5 pl-4 pr-6"
+            >
+              <Text className="text-[18px] font-bold text-[#111827]">
+                {formatDisplayDate(selectedDate)}
+              </Text>
+              <View className="h-[1rem] w-[1rem] items-center justify-center rounded-[10px] bg-[#EAF1FF]">
+                <CalendarDays size={22} color="#023E8A" />
+              </View>
+            </Pressable>
+          </>
+        )}
 
         {frequency === 'Daily' && (
           <View className="mt-4">
@@ -459,15 +512,25 @@ export default function SubscribeScreen() {
 
       <View className="absolute bottom-0 left-0 right-0 bg-[#f6f5f3] px-4 pb-6 pt-3">
         <Pressable
-          onPress={handlePlaceOrder}
-          disabled={subscriptionIsCreating || !defaultAddress || selectedSlots.length === 0}
+          onPress={handleSubmit}
+          disabled={subscriptionIsCreating || subscriptionIsUpdating || (!isEditing && !defaultAddress) || selectedSlots.length === 0}
           className="h-16 items-center justify-center rounded-[30px] bg-[#023E8A]"
         >
           <Text className="text-[20px] font-raleway-bold text-white">
-            {subscriptionIsCreating ? 'Creating...' : 'Place Order'}
+            {isEditing
+              ? subscriptionIsUpdating ? 'Updating...' : 'Update Schedule'
+              : subscriptionIsCreating ? 'Creating...' : 'Place Order'}
           </Text>
         </Pressable>
       </View>
+
+      {subscriptionError && (
+        <View className="absolute bottom-20 left-4 right-4 rounded-xl bg-white px-4 py-2">
+          <Text className="text-center font-raleway-semibold text-[13px] text-red-600">
+            {subscriptionError}
+          </Text>
+        </View>
+      )}
 
       <Modal
         visible={showDatePicker}
@@ -523,21 +586,26 @@ export default function SubscribeScreen() {
             </View>
 
             <Text className="text-center text-[22px] font-raleway-bold text-[#111827]">
-              Subscription Added
+              {isEditing ? 'Schedule Updated' : 'Subscription Added'}
             </Text>
 
             <Text className="mt-2 text-center text-[14px] font-raleway-semibold text-[#475569]">
-              {product.name} is scheduled from {formatDisplayDate(selectedDate)} with {selectedSlots.join(' + ')} slot.
+              {isEditing
+                ? `${product.name}'s delivery schedule has been updated.`
+                : `${product.name} is scheduled from ${formatDisplayDate(selectedDate)} with ${selectedSlots.join(' + ')} slot.`}
             </Text>
 
             <Pressable
-              className="mt-4 h-18 rounded-full bg-[#023E8A] px-5 py-3"
+              className="mt-4 pb-4 h-18 rounded-full bg-[#023E8A] px-5 py-3"
               onPress={() => {
                 setShowSuccess(false);
-                router.replace('/(tabs)');
+                if (isEditing) router.back();
+                else router.replace('/(tabs)');
               }}
             >
-              <Text className="text-center text-[15px] font-raleway-bold text-white">Back to Home</Text>
+              <Text className="text-center text-[15px] font-raleway-bold text-white">
+                {isEditing ? 'Back to Subscription' : 'Back to Home'}
+              </Text>
             </Pressable>
           </View>
         </View>

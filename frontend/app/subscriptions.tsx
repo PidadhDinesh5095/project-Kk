@@ -26,14 +26,14 @@ export default function SubscriptionsScreen() {
 
   const openSubscription = (subscription: Subscription) => {
     setActiveSubscription(subscription.id);
-    router.push('/subscription');
+    router.push({ pathname: '/subscription', params: { id: subscription.id } });
   };
 
   const isLoading = subscriptionIsLoading || !subscriptionHasLoaded;
 
   return (
     <View className="flex-1 bg-white">
-      <View className="flex-row items-center px-4 pt-2">
+      <View className="flex-row items-center px-4 my-1 pt-2">
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
           <ArrowLeft size={28} color="#111827" />
         </Pressable>
@@ -103,10 +103,10 @@ export default function SubscriptionsScreen() {
                     </View>
                   )}
                   <View className="min-w-0 flex-1">
-                    <Text numberOfLines={1} className="font-raleway-bold text-[17px] text-[#111827]">
+                    <Text numberOfLines={1} className="font-raleway-bold text-[18px] text-[#111827]">
                       {subscription.productName ?? 'Subscribed product'}
                     </Text>
-                    <Text className="mt-1 font-raleway-semibold text-[14px] text-[#64748B]">
+                    <Text className="mt-1 font-raleway-semibold text-[14px] text-[#111827]">
                       {subscription.frequency} subscription
                     </Text>
                   </View>
@@ -114,25 +114,18 @@ export default function SubscriptionsScreen() {
                 <StatusPill label={subscription.status} />
               </View>
 
-              <View className="mt-4 flex-row flex-wrap gap-x-5 gap-y-3 border-t border-[#F1F5F9] pt-3">
-                <View className="flex-row items-center gap-1.5">
-                  <Repeat size={16} color="#64748B" />
-                  <Text className="font-raleway-semibold text-[14px] text-[#475569]">{quantityLabel}</Text>
-                </View>
-                <View className="flex-row items-center gap-1.5">
-                  <Clock3 size={16} color="#64748B" />
-                  <Text className="font-raleway-semibold text-[14px] text-[#475569]">{slotLabel}</Text>
-                </View>
-              </View>
+             
 
-              <View className="mt-3 flex-row items-center justify-between">
+              <View className="mt-3 gap-2">
+                <Text className="font-raleway-semibold text-[12px] text-[#64748B]">
+                  {subscription.frequency} · {subscription.planTier ?? 'Standard'}
+                </Text>
                 <View className="flex-row items-center gap-1.5">
                   <CalendarDays size={16} color="#023E8A" />
-                  <Text className="font-raleway-semibold text-[14px] text-[#023E8A]">
+                  <Text className="font-raleway-bold text-[14px] text-[#023E8A]">
                     Next delivery: {formatDate(nextDate)}
                   </Text>
                 </View>
-                <ChevronRight size={18} color="#64748B" />
               </View>
             </Pressable>
           );

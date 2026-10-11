@@ -81,12 +81,15 @@ export function StatusPill({
 }: {
   label: string;
 }) {
-  const tone =
-    label === 'Delivered' || label === 'Active'
-      ? 'green'
-      : label === 'Cancelled'
-        ? 'red'
-        : 'blue';
+  const tone = label === 'Active'
+    ? 'active'
+    : label === 'Delivered'
+    ? 'green'
+    : label === 'Cancelled'
+      ? 'red'
+      : label === 'Paused'
+        ? 'paused'
+      : 'blue';
 
   return (
     <View
@@ -94,7 +97,11 @@ export function StatusPill({
         ? 'bg-[#DCFCE7]'
         : tone === 'red'
           ? 'bg-[#FEE2E2]'
-          : 'bg-[#E0EAFF]'
+          : tone === 'active'
+            ? 'bg-[#023E8A]'
+            : tone === 'paused'
+              ? 'bg-[#FFF7ED]'
+            : 'bg-[#E0EAFF]'
         }`}
     >
       <Text
@@ -102,7 +109,11 @@ export function StatusPill({
           ? 'text-[#15803D]'
           : tone === 'red'
             ? 'text-[#B91C1C]'
-            : 'text-[#023E8A]'
+            : tone === 'active'
+              ? 'text-white'
+              : tone === 'paused'
+                ? 'text-[#B45309]'
+              : 'text-[#023E8A]'
           }`}
       >
         {label}

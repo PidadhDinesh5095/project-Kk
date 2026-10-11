@@ -28,6 +28,7 @@ type ApiSubscription = {
   custom_config?: { selectedDays?: SubscriptionDayCode[]; quantityPerDay?: Record<string, number> };
   skipped_dates?: string[];
   paused_ranges?: Array<{ reason?: string | null; startDate?: string | null; endDate?: string | null }>;
+  cancellation_reason?: string | null;
   created_at?: string;
 };
 
@@ -60,6 +61,8 @@ type SubscriptionCreateInput = {
     quantityPerDay: Record<string, number>;
   };
 };
+
+type SubscriptionScheduleInput = Omit<SubscriptionCreateInput, 'productId' | 'addressId' | 'startDate'>;
 
 const mapSlot = (slot?: string | null): 'MORNING' | 'EVENING' | undefined => {
   if (slot === 'EVENING' || slot === 'MORNING') return slot;
@@ -123,6 +126,7 @@ const normalizeSubscription = (item: Partial<ApiSubscription> | Subscription): S
     skippedDates: (apiItem.skipped_dates ?? legacyItem.skippedDates ?? [])
       .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
     pausedRanges: apiItem.paused_ranges ?? legacyItem.pausedRanges ?? [],
+    cancellationReason: apiItem.cancellation_reason ?? legacyItem.cancellationReason ?? null,
     planTier: legacyItem.planTier,
     quantityPerDelivery: legacyItem.quantityPerDelivery,
     timeSlot: legacyItem.timeSlot,
@@ -182,6 +186,18 @@ export const fetchSubscriptions = createAsyncThunk<Subscription[], void, { rejec
   },
 );
 
+export const fetchSubscriptionById = createAsyncThunk<Subscription, string, { rejectValue: string }>(
+  'subscription/fetchById',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await api.get<{ data: ApiSubscription }>(`/subscriptions/${id}`);
+      return normalizeSubscription(response.data.data);
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error, 'Unable to load subscription'));
+    }
+  },
+);
+
 export const fetchSubscriptionCounts = createAsyncThunk<
   { total: number; active: number },
   void,
@@ -211,6 +227,34 @@ export const createSubscription = createAsyncThunk<Subscription, SubscriptionCre
   },
 );
 
+export const updateSubscriptionSchedule = createAsyncThunk<
+  Subscription,
+  { id: string } & SubscriptionScheduleInput,
+  { rejectValue: string }
+>(
+  'subscription/updateSchedule',
+  async ({ id, ...input }, { rejectWithValue }) => {
+    try {
+      const frequency = input.frequency.toUpperCase();
+      const payload: Record<string, unknown> = {
+        frequency,
+        dailySlots: [...new Set(input.dailySlots.map((slot) => slot.toString().toUpperCase()))],
+      };
+      if (input.frequency === 'Daily') payload.dailyQuantity = input.dailyQuantity ?? 1;
+      if (input.frequency === 'Alternate') payload.alternateConfig = input.alternateConfig;
+      if (input.frequency === 'Custom') payload.customConfig = input.customConfig;
+
+      const response = await api.patch<{ data: { subscription: ApiSubscription } }>(
+        `/subscriptions/${id}/schedule`,
+        payload,
+      );
+      return normalizeSubscription(response.data.data.subscription);
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error, 'Unable to update subscription schedule'));
+    }
+  },
+);
+
 export const pauseSubscription = createAsyncThunk<Subscription, { id: string; reason?: string }, { rejectValue: string }>(
   'subscription/pause',
   async ({ id, reason }, { rejectWithValue }) => {
@@ -236,11 +280,26 @@ export const resumeSubscription = createAsyncThunk<Subscription, string, { rejec
   },
 );
 
-export const cancelSubscription = createAsyncThunk<Subscription, string, { rejectValue: string }>(
-  'subscription/cancel',
+export const restartSubscription = createAsyncThunk<Subscription, string, { rejectValue: string }>(
+  'subscription/restart',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await api.delete<{ data: { subscription?: ApiSubscription } }>(`/subscriptions/${id}`);
+      const response = await api.patch<{ data: { subscription: ApiSubscription } }>(`/subscriptions/${id}/restart`);
+      return normalizeSubscription(response.data.data.subscription);
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error, 'Unable to restart subscription'));
+    }
+  },
+);
+
+export const cancelSubscription = createAsyncThunk<Subscription, { id: string; reason?: string }, { rejectValue: string }>(
+  'subscription/cancel',
+  async ({ id, reason }, { rejectWithValue }) => {
+    try {
+      const trimmedReason = (reason ?? '').trim();
+      const response = await api.delete<{ data: { subscription?: ApiSubscription } }>(`/subscriptions/${id}`, {
+        data: { reason: trimmedReason },
+      });
       const subscription = response.data.data?.subscription ?? response.data.data ?? response.data;
       return normalizeSubscription(subscription as Partial<ApiSubscription>);
     } catch (error) {
@@ -308,6 +367,25 @@ const subscriptionSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      .addCase(fetchSubscriptionById.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchSubscriptionById.fulfilled, (state, action) => {
+        const next = action.payload;
+        const hasExisting = state.items.some((item) => item.id === next.id);
+        state.items = hasExisting
+          ? state.items.map((item) => (item.id === next.id ? { ...item, ...next } : item))
+          : [next, ...state.items];
+        state.activeId = next.id;
+        state.isLoading = false;
+        state.hasLoaded = true;
+      })
+      .addCase(fetchSubscriptionById.rejected, (state, action) => {
+        state.isLoading = false;
+        state.hasLoaded = true;
+        state.error = action.payload ?? 'Unable to load subscription';
+      })
       .addCase(fetchSubscriptions.pending, (state) => {
         state.isLoading = true;
         state.error = null;
@@ -351,6 +429,22 @@ const subscriptionSlice = createSlice({
         state.isCreating = false;
         state.error = action.payload ?? 'Unable to create subscription';
       })
+      .addCase(updateSubscriptionSchedule.pending, (state) => {
+        state.isUpdating = true;
+        state.error = null;
+      })
+      .addCase(updateSubscriptionSchedule.fulfilled, (state, action) => {
+        const next = action.payload;
+        state.items = state.items.map((item) => item.id === next.id
+          ? { ...item, ...next, productImage: next.productImage ?? item.productImage }
+          : item);
+        state.activeId = next.id;
+        state.isUpdating = false;
+      })
+      .addCase(updateSubscriptionSchedule.rejected, (state, action) => {
+        state.isUpdating = false;
+        state.error = action.payload ?? 'Unable to update subscription schedule';
+      })
       .addCase(pauseSubscription.pending, (state) => {
         state.isUpdating = true;
         state.error = null;
@@ -380,6 +474,21 @@ const subscriptionSlice = createSlice({
       .addCase(resumeSubscription.rejected, (state, action) => {
         state.isUpdating = false;
         state.error = action.payload ?? 'Unable to resume subscription';
+      })
+      .addCase(restartSubscription.pending, (state) => {
+        state.isUpdating = true;
+        state.error = null;
+      })
+      .addCase(restartSubscription.fulfilled, (state, action) => {
+        const next = action.payload;
+        state.items = state.items.map((item) => (item.id === next.id ? { ...item, ...next, productImage: next.productImage ?? item.productImage, status: 'Active' } : item));
+        state.activeId = next.id;
+        state.isUpdating = false;
+        state.countsHasLoaded = false;
+      })
+      .addCase(restartSubscription.rejected, (state, action) => {
+        state.isUpdating = false;
+        state.error = action.payload ?? 'Unable to restart subscription';
       })
       .addCase(cancelSubscription.pending, (state) => {
         state.isUpdating = true;

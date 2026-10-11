@@ -4,13 +4,16 @@ import {
   addSubscription,
   cancelSubscription as cancelSubscriptionThunk,
   createSubscription as createSubscriptionThunk,
+  fetchSubscriptionById as fetchSubscriptionByIdThunk,
   fetchSubscriptions as fetchSubscriptionsThunk,
   fetchSubscriptionCounts as fetchSubscriptionCountsThunk,
   pauseSubscription as pauseSubscriptionThunk,
   removeSubscription,
+  restartSubscription as restartSubscriptionThunk,
   resumeSubscription as resumeSubscriptionThunk,
   setActiveSubscription,
   skipSubscriptionDates as skipSubscriptionDatesThunk,
+  updateSubscriptionSchedule as updateSubscriptionScheduleThunk,
   updateSubscription,
 } from '@/store/slices/subscriptionSlice';
 import { addOrder, updateOrderStatus } from '@/store/slices/ordersSlice';
@@ -18,6 +21,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { Notification, Order, OrderStatus, Subscription } from '@/types/fresh';
 
 type SubscriptionCreatePayload = Parameters<typeof createSubscriptionThunk>[0];
+type SubscriptionSchedulePayload = Parameters<typeof updateSubscriptionScheduleThunk>[0];
 
 export function useFreshStore() {
   const dispatch = useAppDispatch();
@@ -71,12 +75,15 @@ export function useFreshStore() {
     clearNotifications: useCallback(() => dispatch(clearNotifications()), [dispatch]),
     markNotificationRead: useCallback((id: string) => dispatch(markNotificationRead(id)), [dispatch]),
     addSubscription: useCallback((subscription: Subscription) => dispatch(addSubscription(subscription)), [dispatch]),
+    fetchSubscriptionById: useCallback((id: string) => dispatch(fetchSubscriptionByIdThunk(id)), [dispatch]),
     fetchSubscriptions: useCallback(() => dispatch(fetchSubscriptionsThunk()), [dispatch]),
     fetchSubscriptionCounts: useCallback(() => dispatch(fetchSubscriptionCountsThunk()), [dispatch]),
     createSubscription: useCallback((payload: SubscriptionCreatePayload) => dispatch(createSubscriptionThunk(payload)), [dispatch]),
+    updateSubscriptionSchedule: useCallback((payload: SubscriptionSchedulePayload) => dispatch(updateSubscriptionScheduleThunk(payload)), [dispatch]),
     pauseSubscription: useCallback((id: string, reason?: string) => dispatch(pauseSubscriptionThunk({ id, reason })), [dispatch]),
     resumeSubscription: useCallback((id: string) => dispatch(resumeSubscriptionThunk(id)), [dispatch]),
-    cancelSubscription: useCallback((id: string) => dispatch(cancelSubscriptionThunk(id)), [dispatch]),
+    restartSubscription: useCallback((id: string) => dispatch(restartSubscriptionThunk(id)), [dispatch]),
+    cancelSubscription: useCallback((id: string, reason?: string) => dispatch(cancelSubscriptionThunk({ id, reason })), [dispatch]),
     skipSubscriptionDates: useCallback((id: string, dates: string[]) => dispatch(skipSubscriptionDatesThunk({ id, dates })), [dispatch]),
     updateSubscription: useCallback((changes: Partial<Subscription> & { id?: string }) => dispatch(updateSubscription(changes)), [dispatch]),
     removeSubscription: useCallback((id: string) => dispatch(removeSubscription(id)), [dispatch]),
