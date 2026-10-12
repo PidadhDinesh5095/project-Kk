@@ -1,34 +1,62 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect } from 'react';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { ArrowLeft, MapPin } from 'lucide-react-native';
 import {
   colors,
   PrimaryButton,
   StatusPill,
 } from '@/components/FreshComponents';
-import { useAppSelector } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { formatDate } from '@/lib/cutoff';
+import { fetchOrderById } from '@/store/slices/ordersSlice';
+import { OrderSkeleton } from '@/components/OrderSkeleton';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const dispatch = useAppDispatch();
+  const detail = useAppSelector((state) => state.orders.detail);
+  const isLoading = useAppSelector((state) => state.orders.detailIsLoading);
+  const error = useAppSelector((state) => state.orders.detailError);
+  const order = detail?.id === id ? detail : null;
 
-  const orders = useAppSelector((state) => state.orders.items);
-  const order = orders.find((o) => o.id === id) ?? orders[0];
+  useEffect(() => {
+    if (id) void dispatch(fetchOrderById(id));
+  }, [dispatch, id]);
+
+  if (!order && (isLoading || !error)) {
+    return (
+      <View className="flex-1 bg-[#F7F9FC] px-5 pt-8">
+        <OrderSkeleton variant="detail" />
+      </View>
+    );
+  }
+
+  if (!order) {
+    return (
+      <View className="flex-1 items-center justify-center bg-[#F7F9FC] px-6">
+        <Text className="text-center font-bold text-[#B91C1C]">{error ?? 'Order not found'}</Text>
+        <Pressable className="mt-4" onPress={() => router.back()}>
+          <Text className="font-bold text-[#023E8A]">Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
-    <View className="flex-1 bg-[#F7F9FC]">
+    <View className="flex-1 bg-white">
 
       {/* Back Button */}
-      <Pressable
-        className="ml-4 mt-2"
-        onPress={() => router.back()}
-        hitSlop={12}
-      >
-        <Text className="text-[32px] leading-[30px] text-[#111827]">
+      <View className="mb-4 mt-2 flex-row items-center justify-around px-4 pt-2">
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
           <ArrowLeft size={28} color="#111827" />
+        </Pressable>
+        <Text className="text-[22px] ml-4 font-bold text-[#111827]">
+          {order.orderId ?? 'Order'}
         </Text>
-      </Pressable>
+        <StatusPill label={order.status} />
+      </View>
 
       <ScrollView
         contentContainerStyle={{
@@ -36,52 +64,41 @@ export default function OrderDetailScreen() {
           paddingBottom: 100,
         }}
       >
-        {/* Order Header */}
-        <View className="mt-3 mb-4 flex-row items-center justify-between">
-          <View>
-            <Text className="text-[18px] font-bold text-[#111827]">
-              {order.id}
-            </Text>
+        
 
-            <Text className="mt-[2px] text-[13px] text-[#64748B]">
-              {formatDate(order.date)}
-            </Text>
-          </View>
+       
 
-          <StatusPill label={order.status} />
-        </View>
-
-        {/* Items */}
-        <Text className="mt-5 mb-[10px] text-[15px] font-bold text-[#111827]">
-          Items
-        </Text>
-
-        <View className="rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
+        <View className="rounded-[16px]  bg-neutral-100 p-[10px]">
           {order.items.map((item, i) => (
             <View
               key={i}
-              className="flex-row items-center gap-3 py-2"
+              className="flex-row items-center gap-3 "
             >
               {/* Item Thumbnail */}
-              <View className="h-11 w-11 items-center justify-center rounded-[10px] bg-[#E8EDF5]">
-                <Text className="text-[9px] font-bold text-[#94A3B8]">
-                  MILK
-                </Text>
-              </View>
+              {item.imageUri ? (
+                <Image source={{ uri: item.imageUri  }} className="h-[65px] w-[65px] rounded-[10px]" resizeMode="cover" />
+              ) : (
+                <View className="h-14 w-14 items-center justify-center rounded-[10px] bg-[#E8EDF5]">
+                  <Text className="text-[9px] font-bold text-[#64748B]">ITEM</Text>
+                </View>
+              )}
 
               {/* Item Details */}
-              <View className="flex-1">
-                <Text className="text-[14px] font-bold text-[#111827]">
+              <View className="flex-1 ml-2">
+                <Text className="text-[16px] font-raleway-bold text-[#111827]">
                   {item.name}
                 </Text>
 
-                <Text className="mt-[2px] text-[12px] text-[#64748B]">
-                  Qty: {item.quantity}
+                <Text className="mt-[2px] text-[14px] font-raleway-semibold  text-black">
+                  {item.quantity} units 
+                </Text>
+                <Text className="mt-[2px] text-[14px] font-raleway-semibold text-black">
+                  {order.deliverySlot ?? 'Delivery'}
                 </Text>
               </View>
 
               {/* Price */}
-              <Text className="text-[14px] font-bold text-[#111827]">
+              <Text className="text-[20px] mr-2 font-bold text-[#111827]">
                 ₹{item.price}
               </Text>
             </View>
@@ -89,16 +106,16 @@ export default function OrderDetailScreen() {
         </View>
 
         {/* Delivery Address */}
-        <Text className="mt-5 mb-[10px] text-[15px] font-bold text-[#111827]">
+        <Text className="mt-3 mb-[10px] text-[16px] font-bold text-[#111827]">
           Delivery Address
         </Text>
 
-        <View className="rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
+        <View className="rounded-[16px]  bg-neutral-100 p-[10px]">
           <View className="flex-row items-center gap-[10px]">
             <MapPin size={16} color={colors.primary} />
 
             <View className="flex-1">
-              <Text className="text-[14px] font-bold text-[#111827]">
+              <Text className="text-[14px] font-raleway-bold text-[#111827]">
                 {order.deliveryAddress}
               </Text>
             </View>
@@ -106,15 +123,15 @@ export default function OrderDetailScreen() {
         </View>
 
         {/* Payment Summary */}
-        <Text className="mt-5 mb-[10px] text-[15px] font-bold text-[#111827]">
+        <Text className="mt-3 mb-[10px] text-[16px] font-raleway-bold text-[#111827]">
           Payment Summary
         </Text>
 
-        <View className="rounded-[16px] border border-[#E2E8F0] bg-white p-[14px]">
+        <View className="rounded-[16px]  bg-neutral-100 p-[10px]">
 
           {/* Item Total */}
           <View className="flex-row justify-between py-[6px]">
-            <Text className="text-[14px] text-[#64748B]">
+            <Text className="text-[14px] font-raleway-bold text-black">
               Item total
             </Text>
 
@@ -123,13 +140,22 @@ export default function OrderDetailScreen() {
             </Text>
           </View>
 
+          <View className="flex-row justify-between py-[6px]">
+            <Text className="text-[14px] font-raleway-bold text-black">
+              Payment status
+            </Text>
+            <Text className="text-right text-[14px] font-raleway-bold text-[#111827]">
+              {order.paymentStatus ?? 'Payment recorded'}
+            </Text>
+          </View>
+
           {/* Delivery Fee */}
           <View className="flex-row justify-between py-[6px]">
-            <Text className="text-[14px] text-[#64748B]">
+            <Text className="text-[14px] font-raleway-bold text-black">
               Delivery fee
             </Text>
 
-            <Text className="text-[14px] font-bold text-[#111827]">
+            <Text className="text-[14px] font-raleway-bold text-[#111827]">
               {order.deliveryFee === 0
                 ? 'FREE'
                 : `₹${order.deliveryFee}`}
@@ -139,7 +165,7 @@ export default function OrderDetailScreen() {
           {/* Wallet Used */}
           {order.walletUsed > 0 && (
             <View className="flex-row justify-between py-[6px]">
-              <Text className="text-[14px] text-[#64748B]">
+              <Text className="text-[14px] font-raleway-bold text-black">
                 Wallet used
               </Text>
 
@@ -154,7 +180,7 @@ export default function OrderDetailScreen() {
 
           {/* Total */}
           <View className="flex-row justify-between py-[6px]">
-            <Text className="text-[15px] font-bold text-[#111827]">
+            <Text className="text-[15px] font-raleway-bold text-[#111827]">
               Total Paid
             </Text>
 
@@ -168,7 +194,7 @@ export default function OrderDetailScreen() {
         {order.status === 'Delivered' && (
           <View className="mt-6">
             <PrimaryButton
-              label="Download Invoice"
+              label="View Invoice"
               onPress={() =>
                 router.push(`/invoice/${order.id}`)
               }

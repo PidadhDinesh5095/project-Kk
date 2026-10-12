@@ -20,13 +20,14 @@ function addDays(date, days) {
 function isoDate(date) {
   return date.toISOString().slice(0, 10);
 }
-function isSkipped(dateStr, skippedDates) {
-  return (skippedDates || []).some((d) => isoDate(new Date(d)) === dateStr);
+function isSkipped(dateStr, skippedDates, pauseDates) {
+  return [...(skippedDates || []), ...(pauseDates || [])]
+    .some((date) => isoDate(new Date(date)) === dateStr);
 }
 // Computes every { date, slot, qty } this subscription should produce within
 // [rangeStart, rangeEnd], honoring skipped dates. Paused subscriptions are
 // excluded by the job query, so pause ranges are not part of this calculation.
-function computeOccurrences(subscription, rangeStart, rangeEnd) {
+function computeOccurrences(subscription, rangeStart, rangeEnd, pauseDates = []) {
   const occurrences = [];
   const subStart = toDateOnly(subscription.start_date);
   const subEnd = subscription.end_date ? toDateOnly(subscription.end_date) : null;
@@ -42,7 +43,7 @@ function computeOccurrences(subscription, rangeStart, rangeEnd) {
   if (subscription.frequency === 'DAILY') {
     for (let d = new Date(windowStart); d <= windowEnd; d = addDays(d, 1)) {
       const dateStr = isoDate(d);
-      if (isSkipped(dateStr, skippedDates)) continue;
+      if (isSkipped(dateStr, skippedDates, pauseDates)) continue;
       for (const slot of slots) {
         occurrences.push({ date: dateStr, slot, qty: subscription.daily_quantity });
       }
@@ -58,7 +59,7 @@ function computeOccurrences(subscription, rangeStart, rangeEnd) {
     let d = diffDays % 2 !== 0 ? addDays(windowStart, 1) : new Date(windowStart);
     for (; d <= windowEnd; d = addDays(d, 2)) {
       const dateStr = isoDate(d);
-      if (isSkipped(dateStr, skippedDates)) continue;
+      if (isSkipped(dateStr, skippedDates, pauseDates)) continue;
       const isStartDate = dateStr === isoDate(subStart);
       const qty = isStartDate ? config.startDateQuantity : config.succeedingDayQuantity;
       for (const slot of slots) occurrences.push({ date: dateStr, slot, qty });
@@ -73,7 +74,7 @@ function computeOccurrences(subscription, rangeStart, rangeEnd) {
       const weekdayCode = WEEKDAY_CODES[d.getUTCDay()];
       if (!selectedDays.includes(weekdayCode)) continue;
       const dateStr = isoDate(d);
-      if (isSkipped(dateStr, skippedDates)) continue;
+      if (isSkipped(dateStr, skippedDates, pauseDates)) continue;
       const qty = quantityPerDay[weekdayCode];
       if (!qty) continue;
       for (const slot of slots) occurrences.push({ date: dateStr, slot, qty });

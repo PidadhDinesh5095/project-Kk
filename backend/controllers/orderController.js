@@ -38,6 +38,15 @@ const createOrder = asyncHandler(async (req, res) => {
     await client.query('BEGIN');
 
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [req.user.id]);
+    const { rows: userRows } = await client.query(
+      'SELECT pause_dates FROM users WHERE id = $1 FOR UPDATE',
+      [req.user.id]
+    );
+    if ((userRows[0]?.pause_dates ?? []).some((date) => new Date(date).toISOString().slice(0, 10) === deliveryDate)) {
+      const error = new Error('Deliveries are paused for the selected date.');
+      error.statusCode = 409;
+      throw error;
+    }
     walletTransaction = await walletService.debit(req.user.id, totalAmount, 'debit', null, client);
     orders = [];
 
@@ -93,13 +102,19 @@ const listOrders = asyncHandler(async (req, res) => {
   const { date } = req.query;
   const { rows } = date
     ? await pool.query(
-        `SELECT o.*, p.name AS product_name, p.images, p.quantity_label
+    `SELECT o.id, o.order_id, o.product_id, o.quantity,
+      to_char(o.delivery_date, 'YYYY-MM-DD') AS delivery_date,
+      o.slot, o.price_at_order, o.total_amount, o.status,
+      p.name AS product_name, p.images, p.main_img_nobg, p.quantity_label
          FROM orders o JOIN products p ON p.id = o.product_id
          WHERE o.user_id = $1 AND o.delivery_date = $2 ORDER BY o.created_at DESC`,
         [req.user.id, date]
       )
     : await pool.query(
-        `SELECT o.*, p.name AS product_name, p.images, p.quantity_label
+    `SELECT o.id, o.order_id, o.product_id, o.quantity,
+      to_char(o.delivery_date, 'YYYY-MM-DD') AS delivery_date,
+      o.slot, o.price_at_order, o.total_amount, o.status,
+      p.name AS product_name, p.images, p.main_img_nobg, p.quantity_label
          FROM orders o JOIN products p ON p.id = o.product_id
          WHERE o.user_id = $1 ORDER BY o.delivery_date DESC`,
         [req.user.id]
@@ -110,7 +125,11 @@ const listOrders = asyncHandler(async (req, res) => {
 // GET /orders/:id
 const getOrderById = asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT o.*, row_to_json(p) AS product, row_to_json(a) AS address
+        `SELECT o.id, o.order_id, o.product_id, o.quantity,
+          to_char(o.delivery_date, 'YYYY-MM-DD') AS delivery_date,
+          o.slot, o.price_at_order, o.total_amount, o.status, o.source,
+          o.wallet_transaction_id,
+          row_to_json(p) AS product, row_to_json(a) AS address
      FROM orders o
      JOIN products p ON p.id = o.product_id
      JOIN addresses a ON a.id = o.address_id
@@ -124,22 +143,43 @@ const getOrderById = asyncHandler(async (req, res) => {
 // GET /orders/:id/invoice
 const getInvoice = asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT o.*, p.name AS product_name FROM orders o
+    `SELECT o.*, p.name AS product_name, p.quantity_label,
+            u.first_name, u.last_name, a.flat_no_apartment_floor,
+            a.block_tower, a.landmark, a.pincode
+     FROM orders o
      JOIN products p ON p.id = o.product_id
+     JOIN users u ON u.id = o.user_id
+     JOIN addresses a ON a.id = o.address_id
      WHERE o.id = $1 AND o.user_id = $2`,
     [req.params.id, req.user.id]
   );
   const order = rows[0];
   if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
+  const amount = Number(order.total_amount);
+  const invoiceDate = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date());
   return ApiResponse.success(res, {
+    invoiceNumber: `INV-${order.order_id}`,
     orderId: order.order_id,
-    product: order.product_name,
+    dateGenerated: invoiceDate,
+    billedTo: [order.first_name, order.last_name].filter(Boolean).join(' ') || 'Customer',
+    deliveryAddress: [
+      order.flat_no_apartment_floor,
+      order.block_tower,
+      order.landmark,
+      order.pincode,
+    ].filter(Boolean).join(', '),
+    productName: `${order.product_name} ${order.quantity_label}`.trim(),
     quantity: order.quantity,
-    priceAtOrder: order.price_at_order,
-    totalAmount: order.total_amount,
-    deliveryDate: order.delivery_date,
-    status: order.status,
+    rate: order.price_at_order,
+    subtotal: amount,
+    total: amount,
+    paymentMode: order.wallet_transaction_id ? 'Wallet' : order.source === 'SUBSCRIPTION' ? 'Subscription payment' : 'Pending',
   });
 });
 

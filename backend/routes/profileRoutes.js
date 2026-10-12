@@ -10,5 +10,7 @@ router.use(requireAuth);
 router.post('/complete', validate(schemas.completeProfile), profile.completeProfile);
 router.get('/me', profile.getMe);
 router.patch('/me', validate(schemas.updateProfile), profile.updateProfile);
+router.get('/pause-dates', profile.getPauseDates);
+router.patch('/pause-dates', validate(schemas.pauseDates), profile.updatePauseDates);
 
 export default router;

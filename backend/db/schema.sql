@@ -11,6 +11,7 @@ CREATE TABLE users (
   last_name           TEXT,
   email               TEXT,
   dob                 DATE,
+  pause_dates         DATE[] NOT NULL DEFAULT '{}',
   profile_completed   BOOLEAN NOT NULL DEFAULT false,
   default_address_id  UUID,
   device_tokens       TEXT[] NOT NULL DEFAULT '{}',   -- FCM tokens for push notifications

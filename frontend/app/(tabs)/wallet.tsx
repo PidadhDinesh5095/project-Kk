@@ -521,7 +521,7 @@ export default function WalletScreen() {
 
   const header = (
     <View className="px-5 pb-3">
-      <Text className="mb-4 mt-2 text-[24px] font-raleway-bold text-[#111827]">My Wallet</Text>
+      <Text className="mb-4 mt-3 text-[24px] font-raleway-bold text-[#111827]">My Wallet</Text>
 
       <View className="rounded-[20px] bg-[#023E8A] p-5">
         <View className="flex-row items-center gap-2">
@@ -634,10 +634,8 @@ export default function WalletScreen() {
   );
 
   return (
-    <View className="flex-1 bg-[#F7F9FC]">
-      <Pressable className="ml-4 mt-2" onPress={() => router.back()} hitSlop={12}>
-        <ArrowLeft size={28} color="#111827" />
-      </Pressable>
+    <View className="flex-1 bg-white">
+      
       <FlatList
         data={wallet.transactions}
         keyExtractor={(transaction) => transaction.id}

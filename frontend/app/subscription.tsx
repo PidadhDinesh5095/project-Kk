@@ -136,7 +136,7 @@ export default function SubscriptionScreen() {
           paddingBottom: 100,
         }}
       >
-        <View className="mt-4 rounded-[14px] border border-[#E2E8F0] bg-white p-2 pl-4">
+        <View className="mt-4 rounded-[14px]  bg-neutral-100 p-2 pl-4">
           <View className="flex-row items-center gap-6">
             {productImage ? (
               <Image
@@ -168,7 +168,7 @@ export default function SubscriptionScreen() {
 
         <SectionTitle title="Delivery Details" />
 
-        <View className="rounded-2xl border border-[#E2E8F0] bg-white p-[14px]">
+        <View className="rounded-2xl  bg-neutral-100 p-[14px]">
           <View className="flex-row items-center gap-3">
             <MapPin size={16} color={colors.primary} />
 
@@ -241,7 +241,7 @@ export default function SubscriptionScreen() {
             <SectionTitle title="Manage Subscription" />
 
             <Pressable
-              className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+              className="mb-2.5 flex-row items-center justify-between rounded-[14px]  bg-neutral-100 p-[14px]"
               onPress={() => router.push({ pathname: '/subscription/pause', params: { id: activeSubscription.id } })}
             >
               <View className="flex-row items-center gap-3">
@@ -262,7 +262,7 @@ export default function SubscriptionScreen() {
             {activeSubscription.status === 'Active' && (
               <>
                 <Pressable
-                  className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+                  className="mb-2.5 flex-row items-center justify-between rounded-[14px]  bg-neutral-100 p-[14px]"
                   onPress={() => router.push({ pathname: '/subscription/skip', params: { id: activeSubscription.id } })}
                 >
                   <View className="flex-row items-center gap-3">
@@ -279,7 +279,7 @@ export default function SubscriptionScreen() {
                 </Pressable>
 
                 <Pressable
-                  className="mb-2.5 flex-row items-center justify-between rounded-[14px] border border-[#E2E8F0] bg-white p-[14px]"
+                  className="mb-2.5 flex-row items-center justify-between rounded-[14px]  bg-neutral-100 p-[14px]"
                   onPress={() => router.push({
                     pathname: '/subscribe/[id]',
                     params: { id: activeSubscription.productId, subscriptionId: activeSubscription.id },

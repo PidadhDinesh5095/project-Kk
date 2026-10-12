@@ -45,7 +45,7 @@ export default function AccountScreen() {
     subscriptionCountsHasLoaded,
     subscriptionCountsIsLoading,
   } = useFreshStore();
-  const profileName = [profile.details.firstName, profile.details.lastName].filter(Boolean).join(' ') || user.name;
+  const profileName = profile.details.firstName || user.name;
   const needsProfileCompletion = profile.hasLoaded && !profile.profileCompleted;
 
   const {isLoggingOut} = user;
@@ -73,7 +73,7 @@ export default function AccountScreen() {
       Alert.alert('Logout failed', 'Unable to clear the saved session. Please try again.');
     }
   };
-
+21
   return (
     <View className="flex-1 bg-white">
 
@@ -98,7 +98,7 @@ export default function AccountScreen() {
 
           {/* User Details */}
           <View className="flex-1">
-            <Text className="text-[26px] my-1 font-raleway-bold text-white">
+            <Text className="text-[26px] my-1 ml-2 font-raleway-bold text-white">
               {needsProfileCompletion ? 'Complete your profile' : profileName || 'Your profile'}
             </Text>
 
@@ -123,7 +123,7 @@ export default function AccountScreen() {
 
           {/* Active Subs */}
           <View className="flex-1 items-center">
-            <Text className="text-[18px] font-raleway-bold text-[#111827]">
+            <Text className="text-[18px] font-bold text-[#111827]">
               {subscriptionCounts.active}
             </Text>
 
@@ -137,7 +137,7 @@ export default function AccountScreen() {
 
           {/* Wallet */}
           <View className="flex-1 items-center">
-            <Text className="text-[18px] font-raleway-bold text-[#111827]">
+            <Text className="text-[18px] font-bold text-[#111827]">
               ₹{walletBalance}
             </Text>
 
@@ -151,7 +151,7 @@ export default function AccountScreen() {
 
           {/* Orders */}
           <View className="flex-1 items-center">
-            <Text className="text-[18px] font-raleway-bold text-[#111827]">
+            <Text className="text-[18px] font-bold text-[#111827]">
               4
             </Text>
 
@@ -279,7 +279,7 @@ export default function AccountScreen() {
         {/* Pause Deliveries */}
         <Pressable
           className="mb-[10px] flex-row items-center justify-between rounded-[14px] bg-gray-100 p-[14px]"
-          onPress={() => router.push('/subscriptions')}
+          onPress={() => router.push('/pause-deliveries')}
         >
           <View className="flex-row items-center gap-3">
             <PauseCircle size={20} color="#023E8A" />

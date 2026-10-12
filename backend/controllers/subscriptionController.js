@@ -10,12 +10,20 @@ import __cjsModule11 from '../utils/generateOrderId.js';
 const { generateOrderId } = __cjsModule11;
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import deliveryCutoff from '../utils/deliveryCutoff.js';
 
 const createSubscription = asyncHandler(async (req, res) => {
   const {
     frequency, productId, addressId, startDate, endDate,
     dailyQuantity, dailySlots, alternateConfig, customConfig,
   } = req.body;
+
+  if (!deliveryCutoff.canPauseDeliveryDate(startDate)) {
+    return res.status(409).json({
+      success: false,
+      message: `Subscriptions can start from ${deliveryCutoff.firstAvailablePauseDate()} onward.`,
+    });
+  }
 
   const { rows: productRows } = await pool.query('SELECT * FROM products WHERE id = $1', [productId]);
   const product = productRows[0];
@@ -370,6 +378,15 @@ const skipDates = asyncHandler(async (req, res) => {
       .map(normalizeCalendarDate)
       .filter(Boolean);
     const skippedSet = new Set(currentSkipped);
+    const datesToSkip = normalized.filter((date) => !skippedSet.has(date));
+    const invalidSkipDate = datesToSkip.find((date) => !deliveryCutoff.canPauseDeliveryDate(date));
+    if (invalidSkipDate) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        message: `Deliveries can only be skipped from ${deliveryCutoff.firstAvailablePauseDate()} onward.`,
+      });
+    }
     const nextSkipped = [...new Set(currentSkipped.concat(normalized.filter((date) => !skippedSet.has(date))))];
 
     for (const date of normalized) {
@@ -387,7 +404,6 @@ const skipDates = asyncHandler(async (req, res) => {
       [nextSkippedDates, req.params.id, req.user.id]
     );
 
-    const datesToSkip = normalized.filter((date) => !skippedSet.has(date));
     const datesToUnskip = normalized.filter((date) => skippedSet.has(date));
 
     let cancelledOrdersCount = 0;

@@ -17,6 +17,7 @@ import {
   updateSubscription,
 } from '@/store/slices/subscriptionSlice';
 import { addOrder, updateOrderStatus } from '@/store/slices/ordersSlice';
+import { fetchPauseDates as fetchPauseDatesThunk, updatePauseDates as updatePauseDatesThunk } from '@/store/slices/pauseDeliveriesSlice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { Notification, Order, OrderStatus, Subscription } from '@/types/fresh';
 
@@ -37,6 +38,7 @@ export function useFreshStore() {
   const productsError = useAppSelector((state) => state.products.listError);
   const productsHasLoaded = useAppSelector((state) => state.products.listHasLoaded);
   const orders = useAppSelector((state) => state.orders.items);
+  const pauseDeliveriesState = useAppSelector((state) => state.pauseDeliveries);
 
   const subscriptions = subscriptionState.items;
   const activeSubscription = subscriptions.find((sub) => sub.id === subscriptionState.activeId) ?? subscriptions[0] ?? null;
@@ -71,6 +73,13 @@ export function useFreshStore() {
     productsError,
     productsHasLoaded,
     orders,
+    pauseDates: pauseDeliveriesState.dates,
+    pauseDatesIsLoading: pauseDeliveriesState.isLoading,
+    pauseDatesIsSaving: pauseDeliveriesState.isSaving,
+    pauseDatesHasLoaded: pauseDeliveriesState.hasLoaded,
+    pauseDatesError: pauseDeliveriesState.error,
+    fetchPauseDates: useCallback(() => dispatch(fetchPauseDatesThunk()), [dispatch]),
+    updatePauseDates: useCallback((dates: string[]) => dispatch(updatePauseDatesThunk(dates)), [dispatch]),
     addNotification: useCallback((notification: Notification) => dispatch(addNotification(notification)), [dispatch]),
     clearNotifications: useCallback(() => dispatch(clearNotifications()), [dispatch]),
     markNotificationRead: useCallback((id: string) => dispatch(markNotificationRead(id)), [dispatch]),

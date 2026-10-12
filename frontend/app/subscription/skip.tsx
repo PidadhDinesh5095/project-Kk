@@ -1,12 +1,12 @@
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Repeat, SkipForward, X } from 'lucide-react-native';
 import { colors, PrimaryButton, StatusPill } from '@/components/FreshComponents';
 import { useFreshStore } from '@/store/useFreshStore';
-import { formatDate } from '@/lib/cutoff';
+import { canPauseDeliveryDate, formatDate } from '@/lib/cutoff';
+import { usePauseDateCutoff } from '@/hooks/usePauseDateCutoff';
 import { Product, Subscription } from '@/types/fresh';
 import { SubscriptionSkeleton } from '@/components/SubscriptionSkeleton';
 
@@ -90,6 +90,7 @@ export default function SkipDeliveryScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showingNextMonth, setShowingNextMonth] = useState(false);
+  const { firstAvailableDate, tomorrowIsAvailable } = usePauseDateCutoff();
 
   const today = new Date();
   const calendarDate = new Date(today.getFullYear(), today.getMonth() + (showingNextMonth ? 1 : 0), 1);
@@ -137,7 +138,7 @@ export default function SkipDeliveryScreen() {
   ];
 
   const toggleDate = (date: string) => {
-    if (!deliveryDates.includes(date)) return;
+    if (!deliveryDates.includes(date) || (!skippedSet.has(date) && !canPauseDeliveryDate(date))) return;
 
     setSelected((prev) =>
       prev.includes(date)
@@ -254,6 +255,12 @@ export default function SkipDeliveryScreen() {
         <Text className="mb-3 ml-2 font-raleway-medium text-[13px] text-[#64748B]">
           Select your scheduled delivery dates
         </Text>
+        <Text className="mb-3 rounded-lg bg-[#EEF3FF] p-3 font-raleway-medium text-[13px] leading-5 text-[#334155]">
+          {`Today's deliveries can't be skipped. `}
+          {tomorrowIsAvailable
+            ? <>Tomorrow can be skipped until <Text className="font-bold">10 PM</Text>.</>
+            : <>Tomorrow can no longer be skipped after <Text className="font-bold">10 PM</Text>. You can skip deliveries from <Text className="font-bold">{formatDate(firstAvailableDate)}</Text>.</>}
+        </Text>
 
         {/* Calendar */}
         <View className="rounded-2xl border border-[#E2E8F0] bg-white p-4">
@@ -310,6 +317,7 @@ export default function SkipDeliveryScreen() {
 
               const isSelected = selected.includes(item.date);
               const isSkipped = skippedSet.has(item.date);
+              const canSelectDate = item.available && (isSkipped || item.date >= firstAvailableDate);
 
               return (
                 <View
@@ -317,35 +325,32 @@ export default function SkipDeliveryScreen() {
                   className="mb-2 h-[52px] w-[14.285%] items-center justify-center"
                 >
                   <Pressable
-                    disabled={!item.available}
+                    disabled={!canSelectDate}
                     onPress={() => toggleDate(item.date)}
                     className={`h-10 w-10 items-center justify-center rounded-[12px] ${
                       isSelected
                         ? 'bg-[#023E8A]'
                         : isSkipped
                           ? 'border border-[#F59E0B] bg-[#FFF7ED]'
-                          : item.available
+                          : canSelectDate
                             ? 'border border-[#023E8A] bg-[#EEF3FF]'
                             : 'bg-transparent'
                     }`}
                   >
                     <Text
                       style={{ fontFamily: 'System' }}
-                      className={`text-[13px] ${
+                      className={`font-extrabold text-[13px] ${
                         isSelected
                           ? 'text-white'
                           : isSkipped
                             ? 'text-[#B45309]'
-                            : item.available
+                            : canSelectDate
                               ? 'text-[#023E8A]'
                               : 'text-[#CBD5E1]'
                       }`}
                     >
                       {item.day}
                     </Text>
-
-                    
-
                     {isSelected && (
                       <View className="absolute -right-1 -top-1 h-4 w-4 items-center justify-center rounded-full bg-white">
                         <Check size={10} color={colors.primary} />

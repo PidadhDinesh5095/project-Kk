@@ -7,6 +7,8 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { fetchAddresses } from '@/store/slices/addressesSlice';
 import { useFreshStore } from '@/store/useFreshStore';
 import { Address, Product } from '@/types/fresh';
+import { firstAvailablePauseDate } from '@/lib/cutoff';
+import { usePauseDateCutoff } from '@/hooks/usePauseDateCutoff';
 
 const dayCodeMap: Record<string, string> = {
   Su: 'SU',
@@ -30,37 +32,14 @@ function formatDisplayDate(date: Date) {
   return `${date.getDate()}-${date.getMonth() + 1}-${date.getFullYear()}`;
 }
 
+function dateFromKey(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function getDateKey(date: Date): string {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 10);
-}
-
-function getSlotAvailability(selectedDate: Date, currentDate: Date): {
-  Morning: boolean;
-  Evening: boolean;
-} {
-  const selectedKey = getDateKey(selectedDate);
-  const todayKey = getDateKey(currentDate);
-  const nextDayKey = getDateKey(new Date(currentDate.getTime() + 24 * 60 * 60 * 1000));
-
-  if (selectedKey === todayKey) {
-    return {
-      Morning: false,
-      Evening: currentDate.getHours() < 12,
-    };
-  }
-
-  if (selectedKey === nextDayKey && currentDate.getHours() >= 22) {
-    return {
-      Morning: false,
-      Evening: true,
-    };
-  }
-
-  return {
-    Morning: true,
-    Evening: true,
-  };
 }
 
 function generateUpcomingDates(startDate: Date) {
@@ -108,7 +87,7 @@ export default function SubscribeScreen() {
 
   const [frequency, setFrequency] = useState<'Daily' | 'Alternate' | 'Custom'>('Daily');
   const [selectedSlots, setSelectedSlots] = useState<string[]>(['Morning']);
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => dateFromKey(firstAvailablePauseDate()));
   const [selectedDays, setSelectedDays] = useState<string[]>(['Mo', 'Tu', 'We']);
   const [dailyQty, setDailyQty] = useState(1);
   const [startQty, setStartQty] = useState(1);
@@ -168,9 +147,14 @@ export default function SubscribeScreen() {
     }
   }, [addressesAreLoading, addressesHaveLoaded, dispatch]);
 
-  const now = new Date();
-  const upcomingDates = useMemo(() => generateUpcomingDates(now), [now]);
-  const slotAvailability = useMemo(() => getSlotAvailability(selectedDate, now), [selectedDate, now]);
+  const { firstAvailableDate, tomorrowIsAvailable } = usePauseDateCutoff();
+  const upcomingDates = useMemo(
+    () => generateUpcomingDates(dateFromKey(firstAvailableDate)),
+    [firstAvailableDate],
+  );
+  const effectiveStartDate = getDateKey(selectedDate) < firstAvailableDate
+    ? dateFromKey(firstAvailableDate)
+    : selectedDate;
   const selectedAddress = addresses.find((item: Address) => item.id === selectedAddressId) ?? defaultAddress;
 
   const activeDayRows = useMemo(
@@ -182,32 +166,10 @@ export default function SubscribeScreen() {
     [selectedDays]
   );
 
-  useEffect(() => {
-    if (isEditing) return;
-    const nextAvailable = ['Morning', 'Evening'].filter(
-      (slot) => slotAvailability[slot as 'Morning' | 'Evening']
-    );
-
-    if (!nextAvailable.length) {
-      setSelectedSlots((current) => (current.length ? [] : current));
-      return;
-    }
-
-    const isValidSelection = selectedSlots.some((slot) => nextAvailable.includes(slot));
-
-    if (!isValidSelection) {
-      setSelectedSlots([nextAvailable[0]]);
-    }
-  }, [isEditing, selectedDate, slotAvailability]);
-
   const toggleSlot = (slot: string) => {
-    if (!isEditing && !slotAvailability[slot as 'Morning' | 'Evening']) {
-      return;
-    }
-
     setSelectedSlots((current) =>
       current.includes(slot)
-        ? current.filter((item) => item !== slot)
+        ? current.length > 1 ? current.filter((item) => item !== slot) : current
         : [...current, slot]
     );
   };
@@ -263,7 +225,7 @@ export default function SubscribeScreen() {
         await createSubscription({
           productId: product.id,
           addressId: nextAddressId,
-          startDate: getDateKey(selectedDate),
+          startDate: getDateKey(effectiveStartDate),
           ...schedule,
         }).unwrap();
       }
@@ -289,7 +251,7 @@ export default function SubscribeScreen() {
         : Object.values(customQty).reduce((sum, qty) => sum + (qty ?? 1), 0);
 
   return (
-    <View className="flex-1 bg-[#f6f5f3]">
+    <View className="flex-1 bg-white">
       <View className="flex-row items-center px-4 mb-4 mt-2 pt-2">
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
           <ArrowLeft size={28} color="#111827" />
@@ -370,21 +332,19 @@ export default function SubscribeScreen() {
         <View className="mt-3 flex-row gap-2">
           {['Morning', 'Evening'].map((slot) => {
             const isSelected = selectedSlots.includes(slot);
-            const disabled = !isEditing && !slotAvailability[slot as 'Morning' | 'Evening'];
 
             return (
               <Pressable
                 key={slot}
                 onPress={() => toggleSlot(slot)}
-                disabled={disabled}
                 className={`flex-row items-center justify-center gap-2 rounded-[18px] px-4 py-2.5 ${
-                  isSelected ? 'bg-[#023E8A]' : disabled ? 'bg-[#E5E7EB] opacity-50' : 'bg-[#F1F1EE]'
+                  isSelected ? 'bg-[#023E8A]' : 'bg-[#F1F1EE]'
                 }`}
               >
                 {isSelected && <Check size={12} color="#fff" />}
                 <Text
                   className={`text-[15px] font-raleway-bold ${
-                    isSelected ? 'text-white' : disabled ? 'text-[#94A3B8]' : 'text-[#111827]'
+                    isSelected ? 'text-white' : 'text-[#111827]'
                   }`}
                 >
                   {slot}
@@ -456,7 +416,7 @@ export default function SubscribeScreen() {
                   className="mt-3 flex-row items-center justify-between rounded-[18px] bg-[#f1f1ee] py-3.5 pl-4 pr-6"
                 >
                   <Text className="text-[18px] font-bold text-[#111827]">
-                    {formatDisplayDate(selectedDate)}
+                    {formatDisplayDate(effectiveStartDate)}
                   </Text>
                   <View className="h-[1rem] w-[1rem] items-center justify-center rounded-[10px] bg-[#EAF1FF]">
                     <CalendarDays size={22} color="#023E8A" />
@@ -692,11 +652,16 @@ export default function SubscribeScreen() {
             <Text className="mb-4 text-center text-[20px] font-raleway-bold text-[#111827]">
               Select Delivery Date
             </Text>
+            <Text className="mb-3 text-center font-raleway-medium text-[13px] leading-5 text-[#475569]">
+              {tomorrowIsAvailable
+                ? <>Choose a start date from tomorrow. Tomorrow is available until <Text className="font-bold">10 PM</Text>.</>
+                : <>After <Text className="font-bold">10 PM</Text>, the earliest start date is the day after tomorrow.</>}
+            </Text>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View className="flex-row gap-3 px-1 mb-4">
                 {upcomingDates.map((dateItem) => {
-                  const active = formatDisplayDate(selectedDate) === dateItem.full;
+                  const active = formatDisplayDate(effectiveStartDate) === dateItem.full;
 
                   return (
                     <Pressable
@@ -740,7 +705,7 @@ export default function SubscribeScreen() {
             <Text className="mt-2 text-center text-[14px] font-raleway-semibold text-[#475569]">
               {isEditing
                 ? `${product.name}'s delivery schedule has been updated.`
-                : `${product.name} is scheduled from ${formatDisplayDate(selectedDate)} with ${selectedSlots.join(' + ')} slot.`}
+                : `${product.name} is scheduled from ${formatDisplayDate(effectiveStartDate)} with ${selectedSlots.join(' + ')} slot.`}
             </Text>
 
             <Pressable

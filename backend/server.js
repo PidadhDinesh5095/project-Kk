@@ -6,8 +6,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
-// added imports
-import cron from 'node-cron';
+import { startScheduler } from './job.js';
 
 
 import { connectRedis } from './config/redis.js';
@@ -34,7 +33,6 @@ import orderRoutes from './routes/orderRoutes.js';
 import subscriptionRoutes from './routes/subscriptionRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
-import generateDailySubscriptionOrders from './jobs/extendSubscriptionOrders.js';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -65,16 +63,17 @@ initSocket(httpServer);
 await connectDb(); // Connect to Postgres
 
 await connectRedis(); // Connect to Upstash Redis
+startScheduler();
 
 // startConsumer().catch((err) => {
 //   console.error('[kafka] consumer failed to start — emails/push notifications will not be processed', err);
 // });
-// Daily subscription order generation at 10:00 PM.
-// Only ACTIVE subscriptions create orders; PAUSED and CANCELLED subscriptions stop.
-cron.schedule('0 22 * * *', () => {
-  console.log('[cron] generateDailySubscriptionOrders');
-  generateDailySubscriptionOrders().catch((err) => console.error('[cron] generateDailySubscriptionOrders failed', err));
-});
+// startScheduler() runs subscription deliveries at 22:00 and 13:00 IST.
+
+
+
+
+
 
 // Postgres has no TTL index like Mongo — sweep expired OTP rows periodically.
 setInterval(() => {

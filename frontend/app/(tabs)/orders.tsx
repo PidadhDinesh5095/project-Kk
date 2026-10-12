@@ -1,7 +1,7 @@
 
 
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -15,10 +15,11 @@ import {
 } from 'lucide-react-native';
 import {
   EmptyState,
-  StatusPill,
 } from '@/components/FreshComponents';
-import { useAppSelector } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { fetchOrders } from '@/store/slices/ordersSlice';
 import { formatDate } from '@/lib/cutoff';
+import { OrderSkeleton } from '@/components/OrderSkeleton';
 
 const dayNames = [
   'SUN',
@@ -54,17 +55,29 @@ const filters: Filter[] = [
   'Cancelled',
 ];
 
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 export default function OrdersScreen() {
+  const dispatch = useAppDispatch();
   const orders = useAppSelector(
     (state) => state.orders.items
   );
+  const ordersAreLoading = useAppSelector((state) => state.orders.isLoading);
+  const ordersError = useAppSelector((state) => state.orders.error);
 
   const [filter, setFilter] = useState<Filter>('All');
-  const [selectedDate, setSelectedDate] =
-    useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
 
-  const [viewMonth, setViewMonth] = useState(8);
-  const [viewYear, setViewYear] = useState(2026);
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const dateStripRef = useRef<ScrollView>(null);
+  const [dateStripWidth, setDateStripWidth] = useState(0);
+
+  useEffect(() => {
+    void dispatch(fetchOrders(selectedDate));
+  }, [dispatch, selectedDate]);
 
   const dates = useMemo(() => {
     const daysInMonth = new Date(
@@ -84,9 +97,7 @@ export default function OrdersScreen() {
           dayNum
         );
 
-        const value = date
-          .toISOString()
-          .slice(0, 10);
+        const value = dateKey(date);
 
         return {
           value,
@@ -96,6 +107,17 @@ export default function OrdersScreen() {
       }
     );
   }, [viewMonth, viewYear]);
+
+  useEffect(() => {
+    if (dateStripWidth === 0) return;
+    const todayIndex = dates.findIndex((date) => date.value === dateKey(new Date()));
+    if (todayIndex < 0) return;
+
+    const cellWidth = 48;
+    const cellGap = 8;
+    const targetOffset = 20 + todayIndex * (cellWidth + cellGap) - (dateStripWidth - cellWidth) / 2;
+    dateStripRef.current?.scrollTo({ x: Math.max(0, targetOffset), animated: false });
+  }, [dateStripWidth, dates]);
 
   const filtered = useMemo(() => {
     let result =
@@ -154,15 +176,15 @@ export default function OrdersScreen() {
   };
 
   return (
-    <View className="flex-1 bg-[#F7F9FC]">
+    <View className="flex-1 bg-white">
 
       {/* ================= HEADER ================= */}
 
-      <View className="bg-[#F7F9FC]">
+      <View className="bg-white">
 
         {/* Top Bar */}
         <View className="mb-3 px-5">
-          <Text className="text-[22px] font-bold text-[#111827]">
+          <Text className="text-[22px] font-raleway-bold text-[#111827]">
             My Orders
           </Text>
         </View>
@@ -180,7 +202,7 @@ export default function OrdersScreen() {
             />
           </Pressable>
 
-          <Text className="text-[16px] font-bold text-[#111827]">
+          <Text className="text-[22px] font-raleway-bold text-[#111827]">
             {monthNames[viewMonth]} {viewYear}
           </Text>
 
@@ -198,12 +220,14 @@ export default function OrdersScreen() {
 
         {/* Date Strip */}
         <ScrollView
+          ref={dateStripRef}
           horizontal
           showsHorizontalScrollIndicator={false}
+          onLayout={(event) => setDateStripWidth(event.nativeEvent.layout.width)}
           contentContainerStyle={{
             paddingHorizontal: 20,
             gap: 8,
-            paddingBottom: 8,
+            
           }}
         >
           {dates.map((d) => {
@@ -218,47 +242,25 @@ export default function OrdersScreen() {
                 key={d.value}
                 className={
                   isSelected
-                    ? 'h-[68px] w-[52px] items-center justify-center rounded-[14px] border border-[#023E8A] bg-[#023E8A]'
-                    : 'h-[68px] w-[52px] items-center justify-center rounded-[14px] border border-[#E2E8F0] bg-white'
+                    ? 'h-[54px] w-[48px] p-1 items-center justify-center rounded-[14px] border border-[#023E8A] bg-[#023E8A]'
+                    : 'h-[54px] w-[48px] p-1 items-center justify-center rounded-[14px] border border-[#E2E8F0] bg-white'
                 }
-                onPress={() =>
-                  setSelectedDate(
-                    isSelected
-                      ? null
-                      : d.value
-                  )
-                }
+                onPress={() => setSelectedDate(d.value)}
               >
 
-                <Text
-                  className={
-                    isSelected
-                      ? 'text-[9px] font-bold text-[#DCE6FF]'
-                      : 'text-[9px] font-bold text-[#64748B]'
-                  }
-                >
-                  {d.day}
-                </Text>
+                
 
                 <Text
                   className={
                     isSelected
-                      ? 'mt-[3px] text-[16px] font-bold text-white'
-                      : 'mt-[3px] text-[16px] font-bold text-[#111827]'
+                      ? 'mt-[1px] text-[18px] font-bold text-white'
+                      : 'mt-[1px] text-[18px] font-bold text-[#111827]'
                   }
                 >
                   {d.dateNum}
                 </Text>
 
-                {hasOrders && (
-                  <View
-                    className={
-                      isSelected
-                        ? 'mt-[5px] h-[5px] w-[5px] rounded-[2.5px] bg-white'
-                        : 'mt-[5px] h-[5px] w-[5px] rounded-[2.5px] bg-[#023E8A]'
-                    }
-                  />
-                )}
+                
 
               </Pressable>
             );
@@ -266,7 +268,7 @@ export default function OrdersScreen() {
         </ScrollView>
 
         {/* Filters */}
-        <View className="my-[10px] flex-row gap-2 px-5">
+        <View className="my-[16px] flex-row gap-2 px-5">
 
           {filters.map((f) => {
             const active = filter === f;
@@ -296,33 +298,7 @@ export default function OrdersScreen() {
 
         </View>
 
-        {/* Selected Date Banner */}
-        {selectedDate && (
-          <View className="flex-row items-center gap-[6px] px-5 pb-2">
-
-            <Calendar
-              size={13}
-              color="#023E8A"
-            />
-
-            <Text className="flex-1 text-[12px] font-bold text-[#023E8A]">
-              Showing orders for{' '}
-              {formatDate(selectedDate)}
-            </Text>
-
-            <Pressable
-              onPress={() =>
-                setSelectedDate(null)
-              }
-              hitSlop={8}
-            >
-              <Text className="text-[12px] font-bold text-[#023E8A]">
-                Clear
-              </Text>
-            </Pressable>
-
-          </View>
-        )}
+        
 
       </View>
 
@@ -337,15 +313,22 @@ export default function OrdersScreen() {
         }}
       >
 
-        {grouped.length === 0 ? (
+        {ordersAreLoading ? (
+          <OrderSkeleton variant="list" />
+        ) : ordersError ? (
+          <View className="py-8">
+            <Text className="text-center text-[14px] font-bold text-[#B91C1C]">{ordersError}</Text>
+            <Pressable className="mt-3 items-center" onPress={() => dispatch(fetchOrders(selectedDate))}>
+              <Text className="font-bold text-[#023E8A]">Retry</Text>
+            </Pressable>
+          </View>
+        ) : grouped.length === 0 ? (
 
           <EmptyState
             icon="📦"
             title="No orders found"
             body={
-              selectedDate
-                ? 'No orders on this date. Try another date or filter.'
-                : 'Orders matching this filter will appear here.'
+              'No orders on this date. Try another date or filter.'
             }
             action="Browse products"
             onAction={() =>
@@ -363,19 +346,7 @@ export default function OrdersScreen() {
                 className="mb-5"
               >
 
-                {/* Date Header */}
-                <View className="mb-[10px] flex-row items-center gap-[6px]">
-
-                  <Calendar
-                    size={14}
-                    color="#023E8A"
-                  />
-
-                  <Text className="text-[14px] font-bold text-[#111827]">
-                    {formatDate(date)}
-                  </Text>
-
-                </View>
+               
 
 
                 {/* Orders */}
@@ -394,20 +365,22 @@ export default function OrdersScreen() {
                     {/* Order Top */}
                     <View className="flex-row items-center justify-between">
 
-                      <Text className="text-[13px] font-bold text-[#111827]">
-                        {order.id}
+                      <Text className="text-[16px] font-bold text-[#111827]">
+                        {order.orderId ?? 'Order'}
                       </Text>
 
-                      <StatusPill
-                        label={order.status}
-                      />
+                      <View className="self-start rounded-xl bg-[#023E8A] px-[9px] py-1">
+                        <Text className="text-[11px] font-raleway-semibold text-white">
+                          {order.status}
+                        </Text>
+                      </View>
 
                     </View>
 
 
                     {/* Items */}
                     <Text
-                      className="mt-2 text-[14px] font-bold text-[#111827]"
+                      className="mt-2 text-[15px] font-raleway-bold text-[#111827]"
                       numberOfLines={1}
                     >
                       {order.items
@@ -421,22 +394,18 @@ export default function OrdersScreen() {
 
                       <View>
 
-                        <Text className="text-[15px] font-bold text-[#111827]">
+                        <Text className="text-[17px] font-bold text-[#111827]">
                           ₹{order.totalPaid}
                         </Text>
 
-                        <Text className="mt-[2px] text-[11px] text-[#64748B]">
-                          {order.items.length}{' '}
-                          item
-                          {order.items.length > 1
-                            ? 's'
-                            : ''}
+                        <Text className="mt-[2px] text-[13px] font-raleway-semibold text-[#64748B]">
+                          {order.items.reduce((units, item) => units + item.quantity, 0)} units
                         </Text>
 
                       </View>
 
-                      <Text className="text-[12px] font-bold text-[#023E8A]">
-                        View details →
+                      <Text className="text-[13px] font-bold text-[#023E8A]">
+                        View details 
                       </Text>
 
                     </View>
