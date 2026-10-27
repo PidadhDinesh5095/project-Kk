@@ -1,0 +1,27 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Generate Android notification icon resources",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"cd /d C:\\dev\\project-K\\frontend && npx expo prebuild --platform android --no-install"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Compile Android debug app",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"cd /d C:\\dev\\project-K\\frontend\\android && gradlew.bat assembleDebug"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

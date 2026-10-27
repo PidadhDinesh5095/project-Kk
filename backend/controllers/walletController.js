@@ -2,11 +2,8 @@ import crypto from 'crypto';
 import pool from '../db/pool.js';
 import razorpay from '../config/razorpay.js';
 import walletService from '../utils/walletService.js';
-import __cjsModule10 from '../kafka/producer.js';
-const { publish } = __cjsModule10;
-import topics from '../kafka/topics.js';
-import __cjsModule11 from '../utils/pushNotificationService.js';
-const { sendNotification } = __cjsModule11;
+import { emitEvent } from '../kafka/producer.js';
+import { EVENT_TYPES } from '../kafka/constants.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
@@ -75,19 +72,13 @@ const verifyTopup = asyncHandler(async (req, res) => {
   const amount = Number((Number(order.amount) / 100).toFixed(2));
   const txn = await walletService.creditOnce(req.user.id, amount, 'credit', razorpayPaymentId);
 
-  // if (txn.inserted) {
-  //   await publish(topics.WALLET_TOPUP_SUCCESS, {
-  //     userId: req.user.id,
-  //     amount,
-  //     balanceAfter: txn.balance_after,
-  //   });
-  //   await sendNotification(req.user.id, {
-  //     type: 'WALLET_TOPUP',
-  //     title: 'Wallet Topped Up',
-  //     body: `₹${amount} added. New balance: ₹${txn.balance_after}`,
-  //     referenceId: txn.id,
-  //   });
-  // }
+  if (txn.inserted) {
+    emitEvent(EVENT_TYPES.WALLET_TOPUP_SUCCESS, req.user.id, {
+      userId: req.user.id,
+      amount,
+      balanceAfter: txn.balance_after,
+    });
+  }
 
   const balance = await walletService.getBalance(req.user.id);
   return ApiResponse.success(res, {
@@ -120,6 +111,12 @@ const withdraw = asyncHandler(async (req, res) => {
     }
     throw error;
   }
+
+  emitEvent(EVENT_TYPES.WALLET_WITHDRAW_SUCCESS, req.user.id, {
+    userId: req.user.id,
+    amount,
+    balanceAfter: transaction.balance_after,
+  });
 
   return ApiResponse.success(res, {
     transaction,

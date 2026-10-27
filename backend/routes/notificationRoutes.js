@@ -9,6 +9,7 @@ const { requireAuth } = __cjsModule578;
 router.use(requireAuth);
 router.get('/', notification.listNotifications);
 router.patch('/mark-all-read', notification.markAllAsRead);
+router.delete('/', notification.clearNotifications);
 router.patch('/:id/read', notification.markAsRead);
 router.post('/device-token', validate(schemas.deviceToken), notification.registerDeviceToken);
 

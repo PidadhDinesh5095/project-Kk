@@ -1,28 +1,34 @@
-// import resend from '../../config/email.js';
+// kafka/handlers/invoice.handler.js
 import pool from '../../db/pool.js';
+import { EVENT_TYPES } from '../constants.js';
+import { notify, rupees } from '../notify.js';
 
-// Generates a simple HTML invoice and emails it — swap in a PDF renderer here
-// later if a downloadable PDF invoice becomes a requirement.
-async function handleInvoiceGenerate(message) {
-  const { orderId } = message;
+// Email only (no push / in-app for invoices).
+const handleInvoiceGenerate = async ({ userId, orderId }) => {
   const { rows } = await pool.query(
-    `SELECT o.*, p.name AS product_name, u.email FROM orders o
-     JOIN products p ON p.id = o.product_id
-     JOIN users u ON u.id = o.user_id
-     WHERE o.order_id = $1`,
+    `SELECT o.quantity, o.total_amount, p.name AS product_name
+       FROM orders o JOIN products p ON p.id = o.product_id
+      WHERE o.order_id = $1`,
     [orderId]
   );
   const order = rows[0];
-  if (!order?.email) return;
+  if (!order) return;
 
-  await resend.emails.send({
-    from: 'billing@dineshfarms.app',
-    to: order.email,
-    subject: `Invoice — ${orderId}`,
-    html: `<h3>Invoice for ${orderId}</h3>
-           <p>${order.product_name} x ${order.quantity}</p>
-           <p>Total: ₹${order.total_amount}</p>`,
+  await notify(userId, {
+    push: false,
+    inapp: false,
+    email: {
+      from: 'billing@dineshfarms.app',
+      subject: `Invoice — ${orderId}`,
+      html: `<h3>Invoice for ${orderId}</h3>
+             <p>${order.product_name} x ${order.quantity}</p>
+             <p>Total: ${rupees(order.total_amount)}</p>`,
+    },
   });
-}
+};
 
-export default { handleInvoiceGenerate };
+export const invoiceHandlers = {
+  [EVENT_TYPES.INVOICE_GENERATE]: handleInvoiceGenerate,
+};
+
+export default invoiceHandlers;

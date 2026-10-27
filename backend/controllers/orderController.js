@@ -2,13 +2,10 @@ import pool from '../db/pool.js';
 import walletService from '../utils/walletService.js';
 import __cjsModule3 from '../utils/generateOrderId.js';
 const { generateOrderId } = __cjsModule3;
-import __cjsModule4 from '../kafka/producer.js';
-const { publish } = __cjsModule4;
-import topics from '../kafka/topics.js';
+import { emitEvents } from '../kafka/producer.js';
+import { EVENT_TYPES } from '../kafka/constants.js';
 import __cjsModule5 from '../socket/socket.js';
 const { emitToUser } = __cjsModule5;
-import __cjsModule6 from '../utils/pushNotificationService.js';
-const { sendNotification } = __cjsModule6;
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
@@ -73,23 +70,17 @@ const createOrder = asyncHandler(async (req, res) => {
     client.release();
   }
 
-  // for (const order of orders) {
-  //   await publish(topics.ORDER_CONFIRMED, {
-  //     userId: req.user.id,
-  //     orderId: order.order_id,
-  //     productName: product.name,
-  //     totalAmount: orderAmount,
-  //     deliveryDate,
-  //   });
-  //   await publish(topics.INVOICE_GENERATE, { orderId: order.order_id });
-  //   emitToUser(req.user.id, 'order:created', { orderId: order.order_id, status: order.status });
-  //   await sendNotification(req.user.id, {
-  //     type: 'ORDER_CONFIRMED',
-  //     title: 'Order Confirmed',
-  //     body: `${product.name} x ${quantity} scheduled for ${new Date(deliveryDate).toDateString()} (${order.slot.toLowerCase()})`,
-  //     referenceId: order.order_id,
-  //   });3
-  // }
+  const events = [];
+  for (const order of orders) {
+    const payload = { userId: req.user.id, orderId: order.order_id, productName: product.name,
+      totalAmount: Number(order.total_amount), deliveryDate };
+    events.push(
+      { type: EVENT_TYPES.ORDER_CONFIRMED, payload },
+      { type: EVENT_TYPES.INVOICE_GENERATE, payload }
+    );
+    emitToUser(req.user.id, 'order:created', { orderId: order.order_id, status: order.status });
+  }
+  emitEvents(req.user.id, events);
 
   const responseData = req.body.slots
     ? { orders, walletTransaction, balance: walletTransaction.balance_after }
@@ -185,16 +176,51 @@ const getInvoice = asyncHandler(async (req, res) => {
 
 // PATCH /orders/:id/cancel — only before it's out for delivery; refunds to wallet.
 const cancelOrder = asyncHandler(async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
-  const order = rows[0];
-  if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-  if (order.status !== 'SCHEDULED') {
-    return res.status(409).json({ success: false, message: 'This order can no longer be cancelled' });
+  const client = await pool.connect();
+  let order;
+  let refund;
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [req.user.id]);
+    const { rows } = await client.query(
+      'SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      [req.params.id, req.user.id]
+    );
+    order = rows[0];
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    if (order.status !== 'SCHEDULED') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, message: 'This order can no longer be cancelled' });
+    }
+
+    await client.query('UPDATE orders SET status = $1 WHERE id = $2', ['CANCELLED', order.id]);
+    refund = await walletService.credit(req.user.id, order.total_amount, 'credit', order.order_id, client);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
   }
 
-  await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['CANCELLED', order.id]);
-  await walletService.credit(req.user.id, order.total_amount, 'credit', order.order_id);
-
+  emitEvents(req.user.id, [
+    {
+      type: EVENT_TYPES.ORDER_CANCELLED,
+      payload: { userId: req.user.id, orderId: order.order_id, cancelledBy: 'USER' },
+    },
+    {
+      type: EVENT_TYPES.WALLET_REFUNDED,
+      payload: {
+        userId: req.user.id,
+        amount: Number(order.total_amount),
+        balanceAfter: refund.balance_after,
+        orderId: order.order_id,
+      },
+    },
+  ]);
   emitToUser(req.user.id, 'order:cancelled', { orderId: order.order_id });
   return ApiResponse.success(res, { ...order, status: 'CANCELLED' }, 200, 'Order cancelled and refunded to wallet');
 });

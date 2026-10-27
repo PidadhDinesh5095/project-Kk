@@ -1,5 +1,4 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import helmet from 'helmet';
@@ -19,7 +18,7 @@ const { generalLimiter } = __cjsModule586;
 import errorHandler from './middleware/errorHandler.middleware.js';
 import __cjsModule587 from './socket/socket.js';
 const { initSocket } = __cjsModule587;
-import startConsumer from './kafka/consumer.js';
+import { startKafka } from './kafka/index.js';
 import __cjsModule588 from './utils/otpService.js';
 const { cleanupExpiredOtps } = __cjsModule588;
 
@@ -63,15 +62,8 @@ initSocket(httpServer);
 await connectDb(); // Connect to Postgres
 
 await connectRedis(); // Connect to Upstash Redis
+await startKafka();
 startScheduler();
-
-// startConsumer().catch((err) => {
-//   console.error('[kafka] consumer failed to start — emails/push notifications will not be processed', err);
-// });
-// startScheduler() runs subscription deliveries at 22:00 and 13:00 IST.
-
-
-
 
 
 

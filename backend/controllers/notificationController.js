@@ -27,6 +27,11 @@ const markAllAsRead = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, null, 200, 'All notifications marked as read');
 });
 
+const clearNotifications = asyncHandler(async (req, res) => {
+  await pool.query('DELETE FROM notifications WHERE user_id = $1', [req.user.id]);
+  return ApiResponse.success(res, null, 200, 'Notifications cleared');
+});
+
 // POST /notifications/device-token — registers an FCM token for push notifications.
 // Without this, Socket.io only reaches a user with the app open in the foreground —
 // this is what lets a notification reach a closed app.
@@ -39,4 +44,4 @@ const registerDeviceToken = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, null, 200, 'Device token registered');
 });
 
-export default { listNotifications, markAsRead, markAllAsRead, registerDeviceToken };
+export default { listNotifications, markAsRead, markAllAsRead, clearNotifications, registerDeviceToken };

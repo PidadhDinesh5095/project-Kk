@@ -1,7 +1,12 @@
+import { existsSync } from 'node:fs';
+
+const androidFirebaseConfig = './google-services.json';
+const iosFirebaseConfig = './GoogleService-Info.plist';
+
 export default {
   expo: {
-    name: 'Dinesh--farms',
-    slug: 'Dinesh--farms',
+    name: 'Dinesh-farms',
+    slug: 'Dinesh-farms',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
@@ -12,6 +17,9 @@ export default {
 
     ios: {
       supportsTablet: true,
+      ...(existsSync(iosFirebaseConfig)
+        ? { googleServicesFile: iosFirebaseConfig }
+        : {}),
     },
 
     web: {
@@ -27,6 +35,16 @@ export default {
       'expo-splash-screen',
       'expo-status-bar',
       'expo-secure-store',
+      '@react-native-firebase/app',
+      '@react-native-firebase/messaging',
+      [
+        'expo-notifications',
+        {
+          icon: './assets/images/logo_nbg.png',
+          color: '#2E7D32',
+          defaultChannel: 'alerts',
+        },
+      ],
       [
         'expo-location',
         {
@@ -42,9 +60,14 @@ export default {
 
     android: {
       package: 'com.anonymous.Dineshfarms',
+      permissions: ['android.permission.POST_NOTIFICATIONS'],
+      ...(existsSync(androidFirebaseConfig)
+        ? { googleServicesFile: androidFirebaseConfig }
+        : {}),
 
       config: {
         googleMaps: {
+          
           apiKey: process.env.EXPO_PUBLIC_MAPS_API_KEY,
         },
       },

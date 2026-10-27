@@ -4,8 +4,9 @@ import { fileURLToPath } from 'url';
 import pool from './db/pool.js';
 import __cjsModule1 from './utils/generateOrderId.js';
 const { generateOrderId } = __cjsModule1;
-import __cjsModule2 from './utils/pushNotificationService.js';
-const { sendNotification } = __cjsModule2;
+import { notify as enqueueNotification } from './kafka/notify.js';
+import { emitEvents } from './kafka/producer.js';
+import { EVENT_TYPES } from './kafka/constants.js';
 
 export { pool };
 
@@ -126,10 +127,8 @@ function evaluate(sub, target, slot) {
 }
 
 // ---------- notification adapter ----------
-// Default is a log-only stub. Plug in your real push helper once:
-//   import { sendNotification } from './services/notification.service.js';
-//   configure({ sendNotification });
-let notify = sendNotification;
+let notify = enqueueNotification;
+
 export function configure({ sendNotification } = {}) {
   if (sendNotification) notify = sendNotification;
 }
@@ -232,8 +231,37 @@ async function placeOrder(client, o, dryRun) {
   }
 }
 
+// ---------- low balance notifications ----------
+async function sendLowBalanceNotifications(lowBalance, slot, target, dryRun) {
+  if (lowBalance.size) console.log('\n' + '-'.repeat(80) + '\nLOW BALANCE NOTIFICATIONS');
+  for (const [userId, lb] of lowBalance) {
+    const payload = {
+      type: 'GENERAL',
+      title: 'Insufficient wallet balance',
+      body:
+        `Your wallet balance (${inr(lb.balance)}) is not enough for ${lb.count} ${slot.toLowerCase()} subscription order(s) ` +
+        `on ${target}. ${inr(lb.neededCents / 100)} needed. Please top up to avoid missed deliveries.`,
+      referenceId: lb.walletId,
+    };
+    if (dryRun) {
+      console.log(`   [DRY RUN] would notify user=${userId}: ${payload.body}`);
+      continue;
+    }
+    try {
+      await notify(userId, payload);
+      console.log(`   notified user=${userId}: ${payload.body}`);
+    } catch (err) {
+      console.log(`   FAILED to notify user=${userId}: ${err.message}`);
+    }
+  }
+}
+
 // ---------- main job ----------
-export async function generateOrdersForSlot(slot, target = targetDateIST(slot), { dryRun = false } = {}) {
+export async function generateOrdersForSlot(
+  slot,
+  target = targetDateIST(slot),
+  { dryRun = false, deferNotify = false } = {}
+) {
   if (!VALID_SLOTS.includes(slot)) throw new Error(`Invalid slot "${slot}" (use MORNING or EVENING)`);
   const client = await pool.connect();
   const lockKey = `orders:${slot}:${target}`;
@@ -259,7 +287,7 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
               s.skipped_dates::text[] as skipped_dates,
               s.paused_ranges, s.daily_slots,
               u.pause_dates::text[] as user_pause_dates,
-              p.price, p.slug as product_slug
+              p.price, p.slug as product_slug, p.name as product_name
          from public.subscriptions s
          left join public.products p on p.id = s.product_id
          left join public.users u on u.id = s.user_id
@@ -281,8 +309,12 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
     );
     console.log('='.repeat(80));
 
-    const stat = { skipped: 0, created: 0, alreadyExisted: 0, insufficient: 0, walletIssues: 0, errors: 0 };
+    const stat = {
+      skipped: 0, created: 0, alreadyExisted: 0, insufficient: 0, walletIssues: 0, errors: 0,
+      eligible: 0, settled: 0,
+    };
     const orders = [];
+    const eventsByUser = new Map();
     const lowBalance = new Map(); // user_id -> { walletId, balance, neededCents, count }
     let debitedCents = 0;
 
@@ -294,6 +326,8 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
             `   => ALREADY PROCESSED: order ${doneOrderId} exists for ${target} ${slot} - skipped before any wallet lock, nothing generated`
         );
         stat.alreadyExisted++;
+        stat.eligible++;
+        stat.settled++;
         continue;
       }
 
@@ -309,10 +343,12 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
         stat.skipped++;
         continue;
       }
+      stat.eligible++;
 
       if (sub.price == null || !(Number(sub.price) >= 0)) {
         console.log('   => DECISION: SKIP (product price missing, cannot charge)');
         stat.errors++;
+        stat.settled++;
         continue;
       }
 
@@ -335,6 +371,7 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
         // wallet_transactions.amount must be > 0
         console.log('   => total is 0, skipping');
         stat.errors++;
+        stat.settled++;
         continue;
       }
 
@@ -348,6 +385,21 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
           stat.created++;
           debitedCents += toCents(o.total_amount);
           orders.push({ order_id: res.orderId, ...o });
+          if (!dryRun) {
+            const userEvents = eventsByUser.get(sub.user_id) || [];
+            const payload = {
+              userId: sub.user_id,
+              orderId: res.orderId,
+              productName: sub.product_name,
+              totalAmount: Number(o.total_amount),
+              deliveryDate: target,
+            };
+            userEvents.push(
+              { type: EVENT_TYPES.ORDER_CONFIRMED, payload },
+              { type: EVENT_TYPES.INVOICE_GENERATE, payload }
+            );
+            eventsByUser.set(sub.user_id, userEvents);
+          }
           break;
         case 'WOULD_CREATE':
           console.log(`   => [DRY RUN] would create order and debit ${inr(o.total_amount)}`);
@@ -386,30 +438,13 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
           console.log(`   => ERROR, rolled back: ${res.error}`);
           stat.errors++;
       }
+      if (res.status !== 'ERROR') stat.settled++;
     }
 
+    for (const [userId, events] of eventsByUser) emitEvents(userId, events);
+
     // one notification per user, even if several subscriptions failed
-    if (lowBalance.size) console.log('\n' + '-'.repeat(80) + '\nLOW BALANCE NOTIFICATIONS');
-    for (const [userId, lb] of lowBalance) {
-      const payload = {
-        type: 'GENERAL',
-        title: 'Insufficient wallet balance',
-        body:
-          `Your wallet balance (${inr(lb.balance)}) is not enough for ${lb.count} ${slot.toLowerCase()} subscription order(s) ` +
-          `on ${target}. ${inr(lb.neededCents / 100)} needed. Please top up to avoid missed deliveries.`,
-        referenceId: lb.walletId,
-      };
-      if (dryRun) {
-        console.log(`   [DRY RUN] would notify user=${userId}: ${payload.body}`);
-        continue;
-      }
-      try {
-        await notify(userId, payload);
-        console.log(`   notified user=${userId}: ${payload.body}`);
-      } catch (err) {
-        console.log(`   FAILED to notify user=${userId}: ${err.message}`);
-      }
-    }
+    if (!deferNotify) await sendLowBalanceNotifications(lowBalance, slot, target, dryRun);
 
     console.log('\n' + '='.repeat(80));
     console.log(
@@ -417,11 +452,16 @@ export async function generateOrdersForSlot(slot, target = targetDateIST(slot), 
         `   orders ${dryRun ? 'that would be created' : 'created'}: ${stat.created}  (total ${dryRun ? 'to debit' : 'debited'}: ${inr(debitedCents / 100)})\n` +
         `   skipped by rules: ${stat.skipped}  | already processed: ${stat.alreadyExisted}\n` +
         `   insufficient balance: ${stat.insufficient} (${lowBalance.size} user(s) notified)\n` +
-        `   wallet problems: ${stat.walletIssues}  | errors: ${stat.errors}`
+        `   wallet problems: ${stat.walletIssues}  | errors: ${stat.errors}\n` +
+        `   eligible: ${stat.eligible}  | settled: ${stat.settled}  | pending: ${stat.eligible - stat.settled}`
     );
     console.table(orders);
 
-    return { target, dryRun, checked: subs.length, ...stat, notifiedUsers: lowBalance.size, debited: debitedCents / 100, orders };
+    return {
+      target, slot, dryRun, checked: subs.length, ...stat,
+      pending: stat.eligible - stat.settled,
+      lowBalance, notifiedUsers: lowBalance.size, debited: debitedCents / 100, orders,
+    };
   } catch (err) {
     console.error('Order generation failed:', err);
     throw err;
@@ -436,39 +476,65 @@ export const generateMorningOrders = (target, opts) => generateOrdersForSlot('MO
 export const generateEveningOrders = (target, opts) => generateOrdersForSlot('EVENING', target, opts);
 
 // ---------- schedule ----------
-const MORNING_CRON = '0 22 * * *'; // 10:00 PM IST -> tomorrow's morning deliveries
-const EVENING_CRON = '0 13 * * *'; // 1:00 PM IST  -> today's evening deliveries
-
-// Catch-up windows (IST hour). If the server was down at the scheduled time, the job is re-run on boot
-// while we are still inside the window. Adjust to your real delivery times.
-const MORNING_CATCHUP = (h) => h >= 22 || h < 6;  // 10 PM -> 6 AM
-const EVENING_CATCHUP = (h) => h >= 13 && h < 17; // 1 PM -> 5 PM
+// IST hour windows. Orders are only generated inside these.
+const MORNING_WINDOW = (h) => h >= 22 || h < 4;   // 10 PM -> 4 AM
+const EVENING_WINDOW = (h) => h >= 13 && h < 16;  // 1 PM -> 4 PM
 const hourIST = () => new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
 
-// Call this once from server.js (or just run this file directly).
-// node-cron does not replay missed runs, so on boot we re-run any slot whose window is still open.
-// Safe to repeat: finished orders are skipped, only the missing ones are created.
+async function processSlot(slot) {
+  const target = targetDateIST(slot);
+
+  await pool.query(
+    `insert into public.order_runs (slot, target_date) values ($1, $2) on conflict do nothing`,
+    [slot, target]
+  );
+  const { rows } = await pool.query(
+    `select status from public.order_runs where slot = $1 and target_date = $2`,
+    [slot, target]
+  );
+  if (rows[0].status === 'FINISHED') return;
+
+  const res = await generateOrdersForSlot(slot, target, { deferNotify: true });
+  if (res.alreadyRunning) return;
+
+  console.log(`[sweep] ${slot} ${target}: ${res.settled}/${res.eligible} settled, ${res.pending} pending`);
+
+  if (res.pending === 0) {
+    await sendLowBalanceNotifications(res.lowBalance, slot, target, false); // once, at completion
+    await pool.query(
+      `update public.order_runs set status = 'FINISHED', eligible = $3, settled = $4, updated_at = now()
+        where slot = $1 and target_date = $2`,
+      [slot, target, res.eligible, res.settled]
+    );
+  } else {
+    await pool.query(
+      `update public.order_runs set eligible = $3, settled = $4, updated_at = now()
+        where slot = $1 and target_date = $2`,
+      [slot, target, res.eligible, res.settled]
+    );
+  }
+}
+let sweeping = { MORNING: false, EVENING: false };
+
+async function sweepSlot(slot, inWindow) {
+  if (sweeping[slot]) return;            // previous tick still running
+  if (!inWindow(hourIST())) return;      // safety: outside window -> do nothing
+  sweeping[slot] = true;
+  try {
+    await processSlot(slot);             // exits immediately if order_runs is FINISHED
+  } catch (e) {
+    console.error(`[sweep] ${slot}:`, e.message);
+  } finally {
+    sweeping[slot] = false;
+  }
+}
+
+// Call once from server.js. Nothing runs at boot; the crons only fire inside their windows.
 export function startScheduler() {
-  (async () => {
-    const h = hourIST();
-    if (MORNING_CATCHUP(h)) {
-      console.log('Startup catch-up: MORNING');
-      await generateMorningOrders().catch((e) => console.error('catch-up MORNING failed:', e.message));
-    }
-    if (EVENING_CATCHUP(h)) {
-      console.log('Startup catch-up: EVENING');
-      await generateEveningOrders().catch((e) => console.error('catch-up EVENING failed:', e.message));
-    }
-  })();
-
-  cron.schedule(MORNING_CRON, () => generateMorningOrders().catch((err) => {
-    console.error('[cron] MORNING order generation failed:', err);
-  }), { timezone: 'Asia/Kolkata' });
-  cron.schedule(EVENING_CRON, () => generateEveningOrders().catch((err) => {
-    console.error('[cron] EVENING order generation failed:', err);
-  }), { timezone: 'Asia/Kolkata' });
-
- 
+  // MORNING: every 2 min from 10:00 PM to 3:58 AM IST
+  cron.schedule('*/2 22,23,0,1,2,3 * * *', () => sweepSlot('MORNING', MORNING_WINDOW), { timezone: 'Asia/Kolkata' });
+  // EVENING: every 2 min from 1:00 PM to 3:58 PM IST
+  cron.schedule('*/2 13,14,15 * * *', () => sweepSlot('EVENING', EVENING_WINDOW), { timezone: 'Asia/Kolkata' });
 }
 
 // ---------- run directly: node job.js  (importing this file does NOT start anything) ----------

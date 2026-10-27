@@ -269,7 +269,7 @@ export default function SubscribeScreen() {
           paddingBottom: 120,
         }}
       >
-        <View className="mt-1 flex-row items-center justify-between rounded-[14px] bg-[#f1f1ee] pr-4 pl-2 py-2">
+        <View className="mt-1 flex-row items-center justify-between rounded-[14px] bg-neutral-100 pr-4 pl-2 py-2">
           <View className="flex-row items-center gap-4 ">
             <View className="h-[72px] w-[72px]  items-center justify-center overflow-hidden ">
               <Image

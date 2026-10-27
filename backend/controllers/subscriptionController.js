@@ -1,9 +1,6 @@
 import pool from '../db/pool.js';
-import __cjsModule8 from '../kafka/producer.js';
-const { publish } = __cjsModule8;
-import topics from '../kafka/topics.js';
-import __cjsModule9 from '../utils/pushNotificationService.js';
-const { sendNotification } = __cjsModule9;
+import { emitEvent } from '../kafka/producer.js';
+import { EVENT_TYPES } from '../kafka/constants.js';
 import __cjsModule10 from '../utils/subscriptionOrderGenerator.js';
 const { computeOccurrences } = __cjsModule10;
 import __cjsModule11 from '../utils/generateOrderId.js';
@@ -12,18 +9,16 @@ import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import deliveryCutoff from '../utils/deliveryCutoff.js';
 
+const dateOnly = (value) => (
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+);
+
 const createSubscription = asyncHandler(async (req, res) => {
   const {
     frequency, productId, addressId, startDate, endDate,
     dailyQuantity, dailySlots, alternateConfig, customConfig,
   } = req.body;
-
-  if (!deliveryCutoff.canPauseDeliveryDate(startDate)) {
-    return res.status(409).json({
-      success: false,
-      message: `Subscriptions can start from ${deliveryCutoff.firstAvailablePauseDate()} onward.`,
-    });
-  }
+  const startDateKey = dateOnly(startDate);
 
   const { rows: productRows } = await pool.query('SELECT * FROM products WHERE id = $1', [productId]);
   const product = productRows[0];
@@ -33,6 +28,21 @@ const createSubscription = asyncHandler(async (req, res) => {
   let subscription;
   try {
     await client.query('BEGIN');
+
+    const { rows: userRows } = await client.query(
+      'SELECT pause_dates FROM users WHERE id = $1 FOR SHARE',
+      [req.user.id]
+    );
+    const startDateIsPaused = (userRows[0]?.pause_dates ?? [])
+      .some((date) => dateOnly(date) === startDateKey);
+
+    if (!startDateIsPaused && !deliveryCutoff.canPauseDeliveryDate(startDateKey)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        message: `Subscriptions can start from ${deliveryCutoff.firstAvailablePauseDate()} onward.`,
+      });
+    }
 
     const { rows } = await client.query(
       `INSERT INTO subscriptions
@@ -45,7 +55,7 @@ const createSubscription = asyncHandler(async (req, res) => {
         dailySlots,
         frequency === 'ALTERNATE' ? JSON.stringify(alternateConfig) : null,
         frequency === 'CUSTOM' ? JSON.stringify(customConfig) : null,
-        startDate, endDate || null,
+        startDateKey, endDate || null,
       ]
     );
     subscription = rows[0];
@@ -58,17 +68,12 @@ const createSubscription = asyncHandler(async (req, res) => {
     client.release();
   }
 
-  // await publish(topics.SUBSCRIPTION_CREATED, {
-  //   userId: req.user.id,
-  //   productName: product.name,
-  //   frequency,
-  // });
-  // await sendNotification(req.user.id, {
-  //   type: 'SUBSCRIPTION_CREATED',
-  //   title: 'Subscription Active',
-  //   body: `Your ${frequency.toLowerCase()} subscription for ${product.name} is now active. Orders will be added automatically at 10:00 PM each day.`,
-  //   referenceId: subscription.id,
-  // });
+  emitEvent(EVENT_TYPES.SUBSCRIPTION_CREATED, req.user.id, {
+    userId: req.user.id,
+    subscriptionId: subscription.id,
+    productName: product.name,
+    frequency,
+  });
 
   return ApiResponse.success(
     res,
@@ -141,6 +146,10 @@ const pauseSubscription = asyncHandler(async (req, res) => {
     );
 
     await client.query('COMMIT');
+    emitEvent(EVENT_TYPES.SUBSCRIPTION_PAUSED, req.user.id, {
+      userId: req.user.id,
+      subscriptionId: rows[0].id,
+    });
     return ApiResponse.success(
       res, { subscription: serializeSubscription(rows[0]), cancelledOrdersCount: rowCount },
       200, 'Subscription paused'
@@ -162,6 +171,10 @@ const resumeSubscription = asyncHandler(async (req, res) => {
   if (rows.length === 0) {
     return res.status(404).json({ success: false, message: 'Paused subscription not found' });
   }
+  emitEvent(EVENT_TYPES.SUBSCRIPTION_RESUMED, req.user.id, {
+    userId: req.user.id,
+    subscriptionId: rows[0].id,
+  });
   return ApiResponse.success(res, { subscription: serializeSubscription(rows[0]) }, 200, 'Subscription resumed');
 });
 
@@ -265,6 +278,10 @@ const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
     }
 
     await client.query('COMMIT');
+    emitEvent(EVENT_TYPES.SUBSCRIPTION_SCHEDULE_UPDATED, req.user.id, {
+      userId: req.user.id,
+      subscriptionId: subscription.id,
+    });
     return ApiResponse.success(res, { subscription: serializeSubscription(subscription) }, 200, 'Schedule updated');
   } catch (e) {
     await client.query('ROLLBACK');
@@ -300,6 +317,10 @@ const restartSubscription = asyncHandler(async (req, res) => {
     );
 
     await client.query('COMMIT');
+    emitEvent(EVENT_TYPES.SUBSCRIPTION_RESUMED, req.user.id, {
+      userId: req.user.id,
+      subscriptionId: rows[0].id,
+    });
     return ApiResponse.success(
       res,
       { subscription: serializeSubscription(rows[0]), restartedOrdersCount: rowCount },
@@ -426,6 +447,13 @@ const skipDates = asyncHandler(async (req, res) => {
     }
 
     await client.query('COMMIT');
+    if (datesToSkip.length > 0) {
+      emitEvent(EVENT_TYPES.SUBSCRIPTION_DATES_SKIPPED, req.user.id, {
+        userId: req.user.id,
+        subscriptionId: req.params.id,
+        dates: datesToSkip,
+      });
+    }
     return ApiResponse.success(
       res,
       { subscription: serializeSubscription(rows[0]), cancelledOrdersCount },
@@ -471,6 +499,10 @@ const cancelSubscription = asyncHandler(async (req, res) => {
     );
 
     await client.query('COMMIT');
+    emitEvent(EVENT_TYPES.SUBSCRIPTION_CANCELLED, req.user.id, {
+      userId: req.user.id,
+      subscriptionId: rows[0].id,
+    });
     return ApiResponse.success(res, { subscription: serializeSubscription(rows[0]), cancelledOrdersCount: rowCount }, 200, 'Subscription cancelled');
   } catch (e) {
     await client.query('ROLLBACK');

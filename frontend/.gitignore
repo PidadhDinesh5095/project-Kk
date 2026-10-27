@@ -3,6 +3,18 @@ node_modules/
 
 android/
 
+node_modules/
+.env
+.env.*
+.expo/
+android/build/
+android/app/build/
+android/.gradle/
+google-services.json
+*.jks
+*.keystore
+
+
 # expo
 .expo/
 dist/

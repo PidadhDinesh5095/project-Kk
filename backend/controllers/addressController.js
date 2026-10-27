@@ -1,4 +1,6 @@
 import pool from '../db/pool.js';
+import { emitEvent } from '../kafka/producer.js';
+import { EVENT_TYPES } from '../kafka/constants.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
@@ -6,7 +8,10 @@ import asyncHandler from '../utils/asyncHandler.js';
 // Called BEFORE letting the customer save an address — otherwise you'd accept
 // addresses in areas you can't actually deliver to.
 const checkServiceability = asyncHandler(async (req, res) => {
-  const { pincode } = req.query;
+  const pincode = typeof req.query.pincode === 'string' ? req.query.pincode : '';
+  if (!/^\d{6}$/.test(pincode)) {
+    return res.status(400).json({ success: false, message: 'A valid 6-digit pincode is required' });
+  }
   const serviceablePincodes = (process.env.SERVICEABLE_PINCODES || '').split(',').map((p) => p.trim());
   const serviceable = serviceablePincodes.includes(pincode);
   return ApiResponse.success(res, { serviceable });
@@ -43,6 +48,16 @@ const createAddress = asyncHandler(async (req, res) => {
     }
 
     await client.query('COMMIT');
+    const serviceablePincodes = (process.env.SERVICEABLE_PINCODES || '').split(',').map((value) => value.trim());
+    if (!serviceablePincodes.includes(pincode)) {
+      emitEvent(EVENT_TYPES.ADDRESS_UNSERVICEABLE, req.user.id, {
+        userId: req.user.id,
+        addressId: address.id,
+        pincode,
+        lat,
+        lng,
+      });
+    }
     return ApiResponse.success(res, address, 201, 'Address saved');
   } catch (e) {
     await client.query('ROLLBACK');

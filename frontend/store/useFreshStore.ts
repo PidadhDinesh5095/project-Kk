@@ -1,5 +1,10 @@
 import { useCallback } from 'react';
-import { addNotification, clearNotifications, markNotificationRead } from '@/store/slices/notificationsSlice';
+import {
+  addNotification,
+  clearNotifications as clearNotificationsThunk,
+  fetchNotifications as fetchNotificationsThunk,
+  markNotificationRead as markNotificationReadThunk,
+} from '@/store/slices/notificationsSlice';
 import {
   addSubscription,
   cancelSubscription as cancelSubscriptionThunk,
@@ -33,6 +38,8 @@ export function useFreshStore() {
   const subscriptionState = useAppSelector((state) => state.subscription);
   const notifications = useAppSelector((state) => state.notifications.items);
   const notificationsHasLoaded = useAppSelector((state) => state.notifications.hasLoaded);
+  const notificationsIsLoading = useAppSelector((state) => state.notifications.isLoading);
+  const notificationsError = useAppSelector((state) => state.notifications.error);
   const products = useAppSelector((state) => state.products.items);
   const productsStatus = useAppSelector((state) => state.products.listStatus);
   const productsError = useAppSelector((state) => state.products.listError);
@@ -68,6 +75,9 @@ export function useFreshStore() {
     subscriptionCountsHasLoaded: subscriptionState.countsHasLoaded,
     notifications,
     notificationsHasLoaded,
+    notificationsIsLoading,
+    notificationsError,
+    fetchNotifications: useCallback(() => dispatch(fetchNotificationsThunk()), [dispatch]),
     products,
     productsStatus,
     productsError,
@@ -81,8 +91,8 @@ export function useFreshStore() {
     fetchPauseDates: useCallback(() => dispatch(fetchPauseDatesThunk()), [dispatch]),
     updatePauseDates: useCallback((dates: string[]) => dispatch(updatePauseDatesThunk(dates)), [dispatch]),
     addNotification: useCallback((notification: Notification) => dispatch(addNotification(notification)), [dispatch]),
-    clearNotifications: useCallback(() => dispatch(clearNotifications()), [dispatch]),
-    markNotificationRead: useCallback((id: string) => dispatch(markNotificationRead(id)), [dispatch]),
+    clearNotifications: useCallback(() => dispatch(clearNotificationsThunk()), [dispatch]),
+    markNotificationRead: useCallback((id: string) => dispatch(markNotificationReadThunk(id)), [dispatch]),
     addSubscription: useCallback((subscription: Subscription) => dispatch(addSubscription(subscription)), [dispatch]),
     fetchSubscriptionById: useCallback((id: string) => dispatch(fetchSubscriptionByIdThunk(id)), [dispatch]),
     fetchSubscriptions: useCallback(() => dispatch(fetchSubscriptionsThunk()), [dispatch]),

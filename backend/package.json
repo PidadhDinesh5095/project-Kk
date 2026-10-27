@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "migrate": "psql \"$DATABASE_URL\" -f db/schema.sql"
+    "migrate": "psql \"$DATABASE_URL\" -f db/schema.sql",
+    "migrate:notification-types": "node db/migrateNotificationTypes.js"
   },
   "dependencies": {
     "@upstash/redis": "^1.37.0",

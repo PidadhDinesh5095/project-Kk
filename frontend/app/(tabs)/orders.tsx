@@ -182,15 +182,10 @@ export default function OrdersScreen() {
 
       <View className="bg-white">
 
-        {/* Top Bar */}
-        <View className="mb-3 px-5">
-          <Text className="text-[22px] font-raleway-bold text-[#111827]">
-            My Orders
-          </Text>
-        </View>
+       
 
         {/* Month Selector */}
-        <View className="mb-3 flex-row items-center justify-center gap-4">
+        <View className="mb-3 mt-1 flex-row items-center justify-center gap-4">
 
           <Pressable
             onPress={prevMonth}

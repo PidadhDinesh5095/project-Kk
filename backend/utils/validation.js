@@ -175,7 +175,7 @@ const schemas = {
     })).min(1).unique().required(),
   }),
 
-  deviceToken: Joi.object({ deviceToken: Joi.string().required() }),
+  deviceToken: Joi.object({ deviceToken: Joi.string().trim().min(1).max(4096).required() }),
 
   addPaymentMethod: Joi.object({
     type: Joi.string().valid('UPI', 'CARD').required(),

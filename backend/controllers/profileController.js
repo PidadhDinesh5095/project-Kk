@@ -1,5 +1,7 @@
 import pool from '../db/pool.js';
 import walletService from '../utils/walletService.js';
+import { emitEvents } from '../kafka/producer.js';
+import { EVENT_TYPES } from '../kafka/constants.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import deliveryCutoff from '../utils/deliveryCutoff.js';
@@ -52,6 +54,7 @@ const getPauseDates = asyncHandler(async (req, res) => {
 
 const updatePauseDates = asyncHandler(async (req, res) => {
   const client = await pool.connect();
+  const events = [];
   try {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [req.user.id]);
@@ -95,13 +98,22 @@ const updatePauseDates = asyncHandler(async (req, res) => {
       );
       for (const order of ordersToCancel) {
         if (order.source === 'ONE_TIME') {
-          await walletService.credit(
+          const refund = await walletService.credit(
             req.user.id,
             Number(order.total_amount),
             'credit',
             order.order_id,
             client
           );
+          events.push({
+            type: EVENT_TYPES.WALLET_REFUNDED,
+            payload: {
+              userId: req.user.id,
+              amount: Number(order.total_amount),
+              balanceAfter: refund.balance_after,
+              orderId: order.order_id,
+            },
+          });
         }
       }
     }
@@ -119,6 +131,13 @@ const updatePauseDates = asyncHandler(async (req, res) => {
     }
 
     await client.query('COMMIT');
+    if (datesToPause.length > 0) {
+      events.unshift({
+        type: EVENT_TYPES.DELIVERY_DATES_PAUSED,
+        payload: { userId: req.user.id, dates: datesToPause },
+      });
+    }
+    emitEvents(req.user.id, events);
     return ApiResponse.success(res, { pauseDates: nextDates }, 200, 'Pause dates updated');
   } catch (error) {
     await client.query('ROLLBACK');

@@ -55,6 +55,17 @@ CREATE INDEX idx_addresses_user ON addresses (user_id);
 ALTER TABLE users
   ADD CONSTRAINT fk_users_default_address FOREIGN KEY (default_address_id) REFERENCES addresses(id);
 
+CREATE TABLE unserviceable_demand (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  address_id  UUID REFERENCES addresses(id) ON DELETE SET NULL,
+  pincode     TEXT NOT NULL,
+  lat         DOUBLE PRECISION,
+  lng         DOUBLE PRECISION,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, pincode)
+);
+
 -- ---------- Products ----------
 CREATE TABLE products (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -260,7 +271,7 @@ CREATE TABLE payment_methods (
 CREATE TABLE notifications (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID NOT NULL REFERENCES users(id),
-  type          TEXT NOT NULL CHECK (type IN ('ORDER_CONFIRMED','ORDER_DELIVERED','SUBSCRIPTION_CREATED','WALLET_TOPUP','GENERAL')),
+  type          TEXT NOT NULL,
   title         TEXT NOT NULL,
   body          TEXT NOT NULL,
   read          BOOLEAN NOT NULL DEFAULT false,
@@ -268,3 +279,24 @@ CREATE TABLE notifications (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_notifications_user ON notifications (user_id, created_at DESC);
+
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN (
+  'ORDER_CONFIRMED', 'ORDER_CANCELLED', 'ORDER_OUT_FOR_DELIVERY', 'ORDER_DELIVERED',
+  'ORDER_DELIVERY_FAILED', 'ORDER_PAYMENT_FAILED', 'SUBSCRIPTION_CREATED',
+  'SUBSCRIPTION_PAUSED', 'SUBSCRIPTION_RESUMED', 'SUBSCRIPTION_DATES_SKIPPED',
+  'SUBSCRIPTION_CANCELLED', 'SUBSCRIPTION_SCHEDULE_UPDATED', 'WALLET_TOPUP',
+  'WALLET_TOPUP_FAILED', 'WALLET_WITHDRAW', 'WALLET_DEBITED', 'WALLET_REFUNDED',
+  'WALLET_BALANCE_LOW', 'ADDRESS_UPDATE', 'DELIVERY_DATES_PAUSED', 'GENERAL'
+));
+
+
+create table public.order_runs (
+  slot        text not null check (slot in ('MORNING', 'EVENING')),
+  target_date date not null,
+  status      text not null default 'RUNNING' check (status in ('RUNNING', 'FINISHED')),
+  eligible    int  not null default 0,
+  settled     int  not null default 0,
+  updated_at  timestamptz not null default now(),
+  primary key (slot, target_date)
+);

@@ -28,6 +28,7 @@ import { fetchProfile } from '@/store/slices/profileSlice';
 import { fetchAddresses } from '@/store/slices/addressesSlice';
 import { fetchOrders } from '@/store/slices/ordersSlice';
 import { fetchWallet } from '@/store/slices/walletSlice';
+import { fetchNotifications } from '@/store/slices/notificationsSlice';
 import { useFreshStore } from '@/store/useFreshStore';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -38,6 +39,7 @@ const BANNER_HEIGHT = BANNER_WIDTH * 1.15;
 const AUTO_SCROLL_MS = 5000;
 
 const LOGO_URI = require('@/assets/images/logo_nbg.png');
+const NOTIFICATION_ICON_URI = require('@/assets/images/notification-img.png');
 
 const fallbackBannerImage = require('@/assets/images/home-1.png');
 
@@ -97,6 +99,7 @@ export default function HomeScreen() {
     walletBalance,
     products,
     orders,
+    notifications,
   } = useFreshStore();
 
   const greeting = useMemo(() => getGreeting(), []);
@@ -144,6 +147,7 @@ export default function HomeScreen() {
       if (!addressesHaveLoaded && !addressesAreLoading) dispatch(fetchAddresses());
       if (!ordersHaveLoaded && !ordersAreLoading) dispatch(fetchOrders());
       if (!walletHasLoaded && !walletIsLoading && !walletError) dispatch(fetchWallet());
+      dispatch(fetchNotifications());
     }, [
       addressesAreLoading,
       addressesHaveLoaded,
@@ -270,11 +274,13 @@ export default function HomeScreen() {
                 <Pressable
                   onPress={() => router.push('/notifications')}
                   hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Notifications"
                 >
-                  <Bell
-                    size={25}
-                    color="#000000"
-                  />
+                  <Bell size={24} color="#000000" />
+                  {notifications.length > 0 && (
+                    <View className="absolute -right-1 -top-1 h-2 w-2 rounded-full  bg-red-500" />
+                  )}
                 </Pressable>
               </View>
             </View>
