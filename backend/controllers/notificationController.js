@@ -2,13 +2,29 @@ import pool from '../db/pool.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
-// GET /notifications
+// GET /notifications?offset=0&limit=10
 const listNotifications = asyncHandler(async (req, res) => {
-  const { rows } = await pool.query(
-    'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100',
-    [req.user.id]
-  );
-  return ApiResponse.success(res, rows);
+  const rawLimit = Number(req.query.limit ?? 10);
+  const rawOffset = Number(req.query.offset ?? 0);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 10;
+  const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+
+  const [{ rows: totalRows }, { rows }] = await Promise.all([
+    pool.query('SELECT COUNT(*)::int AS total FROM notifications WHERE user_id = $1', [req.user.id]),
+    pool.query(
+      'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      [req.user.id, limit, offset]
+    ),
+  ]);
+
+  const total = Number(totalRows[0]?.total ?? 0);
+  return ApiResponse.success(res, {
+    items: rows,
+    offset,
+    limit,
+    total,
+    hasMore: offset + rows.length < total,
+  });
 });
 
 // PATCH /notifications/:id/read

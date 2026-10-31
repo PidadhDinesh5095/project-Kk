@@ -71,18 +71,19 @@ const handleDeliveryDatesPaused = async ({ userId, dates = [] }) => {
   });
 };
 
-const handleCancelled = async ({ userId, subscriptionId, productName }) => {
+const handleCancelled = async ({ userId, subscriptionId, productName, reason }) => {
   const name = productName || 'your selected product';
+  const message = reason ? `Your ${name} subscription has been cancelled. Reason: ${reason}.` : `Your subscription for ${name} has been cancelled.`;
   await notify(userId, {
     type: 'SUBSCRIPTION_CANCELLED',
     title: 'Subscription cancelled',
-    body: `Your subscription for ${name} has been cancelled.`,
+    body: message,
     data: { ...data, subscriptionId },
     referenceId: subscriptionId,
     email: {
       from: FROM,
       subject: `Subscription Cancelled — ${name}`,
-      html: `<p>Your subscription for <b>${name}</b> has been cancelled.</p>`,
+      html: `<p>Your subscription for <b>${name}</b> has been cancelled.${reason ? ` Reason: ${reason}.` : ''}</p>`,
     },
   });
 };

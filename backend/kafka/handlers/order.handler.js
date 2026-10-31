@@ -4,18 +4,33 @@ import { notify, rupees } from '../notify.js';
 
 const FROM = 'orders@dineshfarms.app';
 const orderData = (orderId) => ({ screen: 'OrderDetails', orderId });
-
-const handleConfirmed = async ({ userId, orderId, productName, totalAmount, deliveryDate }) => {
+const formatSlot = (slot) => {
+  if (!slot) return '';
+  const normalized = String(slot).trim().toLowerCase();
+  if (normalized === 'morning') return 'Morning';
+  if (normalized === 'evening') return 'Evening';
+  return slot;
+};
+const formatDateTime = ({ deliveryDate, slot }) => {
   const when = deliveryDate ? new Date(deliveryDate).toDateString() : null;
+  const slotText = formatSlot(slot);
+  if (when && slotText) return `${when} (${slotText} slot)`;
+  if (when) return when;
+  if (slotText) return `${slotText} slot`;
+  return 'your selected delivery time';
+};
+
+const handleConfirmed = async ({ userId, orderId, productName, totalAmount, deliveryDate, slot }) => {
+  const when = formatDateTime({ deliveryDate, slot });
   await notify(userId, {
     type: 'ORDER_CONFIRMED',
     title: 'Order confirmed',
-    body: `${productName} is confirmed${when ? ` for ${when}` : ''}.`,
+    body: `${productName || 'Your order'} is confirmed for ${when}.`,
     data: orderData(orderId),
     email: {
       from: FROM,
       subject: `Order Confirmed — ${orderId}`,
-      html: `<p>Your order for <b>${productName}</b> is confirmed${when ? `, scheduled for ${when}` : ''}.</p>
+      html: `<p>Your order for <b>${productName || 'your selected product'}</b> is confirmed for <b>${when}</b>.</p>
              <p>Total: ${rupees(totalAmount)}</p><p>Order ID: ${orderId}</p>`,
     },
   });

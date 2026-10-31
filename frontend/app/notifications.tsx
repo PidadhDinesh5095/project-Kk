@@ -78,6 +78,7 @@ export default function NotificationsScreen() {
     notifications,
     notificationsIsLoading,
     notificationsError,
+    notificationsHasMore,
     fetchNotifications,
     clearNotifications,
     markNotificationRead,
@@ -88,9 +89,19 @@ export default function NotificationsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchNotifications();
+      void fetchNotifications({ offset: 0, limit: 10, reset: true });
     }, [fetchNotifications]),
   );
+
+  const handleScroll = (event: any) => {
+    const { layoutMeasurement, contentSize, contentOffset } = event.nativeEvent;
+    const threshold = 120;
+    const isAtEnd = layoutMeasurement.height + contentOffset.y >= contentSize.height - threshold;
+
+    if (isAtEnd && !notificationsIsLoading && notificationsHasMore && notifications.length > 0) {
+      void fetchNotifications({ offset: notifications.length, limit: 10, reset: false });
+    }
+  };
 
   const clearAll = async () => {
     setActionError(null);
@@ -149,6 +160,8 @@ export default function NotificationsScreen() {
       )}
 
       <ScrollView
+        onScroll={handleScroll}
+        scrollEventThrottle={200}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: 100,
@@ -168,48 +181,58 @@ export default function NotificationsScreen() {
             body="Updates about deliveries, wallet credits and offers will show up here."
           />
         ) : (
-          notifications.map((n) => (
-            <Pressable
-              key={n.id}
-              className={`mb-2.5 flex-row items-start gap-3 rounded-[14px] border p-[8px] ${
-                n.isRead
-                  ? 'border-[#E2E8F0] bg-white'
-                  : 'border-[#023E8A] bg-[#F5F8FF]'
-              }`}
-              onPress={() => {
-                void markNotificationRead(n.id);
-              }}
-            >
-              {renderTypeIcon(n.type)}
+          <>
+            {notifications.map((n) => (
+              <Pressable
+                key={n.id}
+                className={`mb-2.5 flex-row items-start gap-3 rounded-[14px] border p-[8px] ${
+                  n.isRead
+                    ? 'border-[#E2E8F0] bg-white'
+                    : 'border-[#023E8A] bg-[#F5F8FF]'
+                }`}
+                onPress={() => {
+                  void markNotificationRead(n.id);
+                }}
+              >
+                {renderTypeIcon(n.type)}
 
-              <View className="flex-1">
-                <Text
-                  className="text-[16px] text-[#111827]"
-                  style={{ fontFamily: 'RalewayBold' }}
-                >
-                  {n.title}
-                </Text>
+                <View className="flex-1">
+                  <Text
+                    className="text-[16px] text-[#111827]"
+                    style={{ fontFamily: 'RalewayBold' }}
+                  >
+                    {n.title}
+                  </Text>
 
-                <Text
-                  className="mt-1 text-[13px] leading-[19px] text-[#000000]"
-                  style={{ fontFamily: 'RalewaySemiBold' }}
-                >
-                  {n.body}
-                </Text>
+                  <Text
+                    className="mt-1 text-[13px] leading-[19px] text-[#000000]"
+                    style={{ fontFamily: 'RalewaySemiBold' }}
+                  >
+                    {n.body}
+                  </Text>
 
-                <Text
-                  className="mt-1.5 text-[11px] text-[#64748B]"
-                  
-                >
-                  {n.timestamp}
-                </Text>
-              </View>
+                  <Text
+                    className="mt-1.5 text-[11px] text-[#64748B]"
+                  >
+                    {n.timestamp}
+                  </Text>
+                </View>
 
-              {!n.isRead && (
-                <View className="mt-1.5 h-2 w-2 rounded-full bg-[#023E8A]" />
-              )}
-            </Pressable>
-          ))
+                {!n.isRead && (
+                  <View className="mt-1.5 h-2 w-2 rounded-full bg-[#023E8A]" />
+                )}
+              </Pressable>
+            ))}
+
+            {notificationsIsLoading && notifications.length > 0 && (
+              <Text
+                className="py-4 text-center text-[12px] text-[#64748B]"
+                style={{ fontFamily: 'RalewayMedium' }}
+              >
+                Loading more notifications...
+              </Text>
+            )}
+          </>
         )}
       </ScrollView>
 

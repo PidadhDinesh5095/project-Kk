@@ -72,8 +72,14 @@ const createOrder = asyncHandler(async (req, res) => {
 
   const events = [];
   for (const order of orders) {
-    const payload = { userId: req.user.id, orderId: order.order_id, productName: product.name,
-      totalAmount: Number(order.total_amount), deliveryDate };
+    const payload = {
+      userId: req.user.id,
+      orderId: order.order_id,
+      productName: product.name,
+      totalAmount: Number(order.total_amount),
+      deliveryDate,
+      slot: order.slot,
+    };
     events.push(
       { type: EVENT_TYPES.ORDER_CONFIRMED, payload },
       { type: EVENT_TYPES.INVOICE_GENERATE, payload }

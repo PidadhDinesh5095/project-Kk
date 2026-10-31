@@ -40,6 +40,8 @@ export function useFreshStore() {
   const notificationsHasLoaded = useAppSelector((state) => state.notifications.hasLoaded);
   const notificationsIsLoading = useAppSelector((state) => state.notifications.isLoading);
   const notificationsError = useAppSelector((state) => state.notifications.error);
+  const notificationsHasMore = useAppSelector((state) => state.notifications.hasMore);
+  const unreadNotifications = notifications.filter((notification) => !notification.isRead);
   const products = useAppSelector((state) => state.products.items);
   const productsStatus = useAppSelector((state) => state.products.listStatus);
   const productsError = useAppSelector((state) => state.products.listError);
@@ -77,7 +79,9 @@ export function useFreshStore() {
     notificationsHasLoaded,
     notificationsIsLoading,
     notificationsError,
-    fetchNotifications: useCallback(() => dispatch(fetchNotificationsThunk()), [dispatch]),
+    notificationsHasMore,
+    unreadNotifications,
+    fetchNotifications: useCallback((args?: Parameters<typeof fetchNotificationsThunk>[0]) => dispatch(fetchNotificationsThunk(args)), [dispatch]),
     products,
     productsStatus,
     productsError,

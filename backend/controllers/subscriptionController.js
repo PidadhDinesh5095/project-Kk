@@ -499,9 +499,12 @@ const cancelSubscription = asyncHandler(async (req, res) => {
     );
 
     await client.query('COMMIT');
+    const productName = rows[0]?.product_name || 'your selected product';
     emitEvent(EVENT_TYPES.SUBSCRIPTION_CANCELLED, req.user.id, {
       userId: req.user.id,
       subscriptionId: rows[0].id,
+      productName,
+      reason,
     });
     return ApiResponse.success(res, { subscription: serializeSubscription(rows[0]), cancelledOrdersCount: rowCount }, 200, 'Subscription cancelled');
   } catch (e) {

@@ -14,11 +14,21 @@ type ApiNotification = {
 };
 
 type ApiResponse<T> = { data: T };
+type NotificationsListResponse = {
+  items: ApiNotification[];
+  offset: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+};
 type NotificationsState = {
   items: Notification[];
   hasLoaded: boolean;
   isLoading: boolean;
   error: string | null;
+  hasMore: boolean;
+  offset: number;
+  total: number;
 };
 
 function errorMessage(error: unknown, fallback: string) {
@@ -45,16 +55,33 @@ function toNotification(notification: ApiNotification): Notification {
   };
 }
 
+type FetchNotificationsArgs = {
+  offset?: number;
+  limit?: number;
+  reset?: boolean;
+};
+
 export const fetchNotifications = createAsyncThunk<
-  Notification[],
-  void,
+  { items: Notification[]; offset: number; total: number; hasMore: boolean; reset: boolean },
+  FetchNotificationsArgs | void,
   { rejectValue: string; state: RootState }
 >(
   'notifications/fetch',
-  async (_, { rejectWithValue }) => {
+  async (args, { rejectWithValue }) => {
+    const offset = args?.offset ?? 0;
+    const limit = args?.limit ?? 10;
     try {
-      const response = await api.get<ApiResponse<ApiNotification[]>>('/notifications');
-      return response.data.data.map(toNotification);
+      const response = await api.get<ApiResponse<NotificationsListResponse>>('/notifications', {
+        params: { offset, limit },
+      });
+      const payload = response.data.data;
+      return {
+        items: payload.items.map(toNotification),
+        offset: payload.offset,
+        total: payload.total,
+        hasMore: payload.hasMore,
+        reset: args?.reset ?? offset === 0,
+      };
     } catch (error) {
       return rejectWithValue(errorMessage(error, 'Unable to load notifications'));
     }
@@ -97,6 +124,9 @@ const initialState: NotificationsState = {
   hasLoaded: false,
   isLoading: false,
   error: null,
+  hasMore: true,
+  offset: 0,
+  total: 0,
 };
 
 const notificationsSlice = createSlice({
@@ -114,7 +144,14 @@ const notificationsSlice = createSlice({
         state.error = null;
       })
       .addCase(fetchNotifications.fulfilled, (state, action) => {
-        state.items = action.payload;
+        const nextItems = action.payload.reset
+          ? action.payload.items
+          : [...state.items, ...action.payload.items.filter((item) => !state.items.some((existing) => existing.id === item.id))];
+
+        state.items = nextItems;
+        state.offset = action.payload.offset + action.payload.items.length;
+        state.hasMore = action.payload.hasMore;
+        state.total = action.payload.total;
         state.hasLoaded = true;
         state.isLoading = false;
       })
