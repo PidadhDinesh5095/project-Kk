@@ -90,6 +90,17 @@ function computeOccurrences(subscription, rangeStart, rangeEnd, pauseDates = [])
 // closer to the actual date, is a separate job (see jobs/debitSubscriptionOrders.js)
 // — this function's only job is making sure the right order rows exist.
 async function materializeOrders(client, subscription, product, occurrences) {
+  const { rows: addressRows } = await client.query(
+    `SELECT dark_store_id, is_serviceable
+       FROM public.addresses
+      WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+      FOR UPDATE`,
+    [subscription.address_id, subscription.user_id]
+  );
+  if (!addressRows.length || !addressRows[0].is_serviceable) {
+    throw new Error('Subscription address is unavailable or outside the delivery area');
+  }
+  const darkStoreId = addressRows[0].dark_store_id;
   const created = [];
   for (const occ of occurrences) {
     const orderId = await generateOrderId(product.slug, occ.date);
@@ -97,14 +108,15 @@ async function materializeOrders(client, subscription, product, occurrences) {
 
     const { rows } = await client.query(
       `INSERT INTO orders
-        (order_id, user_id, address_id, product_id, quantity, delivery_date, slot,
+        (order_id, user_id, address_id, dark_store_id, product_id, quantity, delivery_date, slot,
          price_at_order, total_amount, status, source, subscription_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SCHEDULED','SUBSCRIPTION',$10)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SCHEDULED','SUBSCRIPTION',$11)
        ON CONFLICT (subscription_id, delivery_date, slot) DO NOTHING
        RETURNING *`,
       [
-        orderId, subscription.user_id, subscription.address_id, subscription.product_id,
-        occ.qty, occ.date, occ.slot, product.price, totalAmount, subscription.id,
+        orderId, subscription.user_id, subscription.address_id, darkStoreId,
+        subscription.product_id, occ.qty, occ.date, occ.slot, product.price, totalAmount,
+        subscription.id,
       ]
     );
     if (rows[0]) created.push(rows[0]);

@@ -16,23 +16,9 @@ const createOrder = asyncHandler(async (req, res) => {
   const { productId, addressId, quantity, deliveryDate } = req.body;
   const slots = req.body.slots ?? [req.body.slot];
 
-  const [{ rows: productRows }, { rows: addressRows }] = await Promise.all([
-    pool.query('SELECT * FROM products WHERE id = $1', [productId]),
-    pool.query(
-      'SELECT * FROM addresses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
-      [addressId, req.user.id]
-    ),
-  ]);
+  const { rows: productRows } = await pool.query('SELECT * FROM products WHERE id = $1', [productId]);
   const product = productRows[0];
-  const address = addressRows[0];
   if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
-  if (!address) return res.status(404).json({ success: false, message: 'Address not found' });
-  if (!address.is_serviceable) {
-    return res.status(409).json({
-      success: false,
-      message: 'This address is outside our delivery area. Choose a serviceable address to place an order.',
-    });
-  }
 
   const orderAmount = Number((product.price * quantity).toFixed(2));
   const totalAmount = Number((orderAmount * slots.length).toFixed(2));
@@ -48,6 +34,22 @@ const createOrder = asyncHandler(async (req, res) => {
       'SELECT pause_dates FROM users WHERE id = $1 FOR UPDATE',
       [req.user.id]
     );
+    const { rows: addressRows } = await client.query(
+      'SELECT is_serviceable, dark_store_id FROM addresses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE',
+      [addressId, req.user.id]
+    );
+    const address = addressRows[0];
+    if (!address) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Address not found' });
+    }
+    if (!address.is_serviceable) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        message: 'This address is outside our delivery area. Choose a serviceable address to place an order.',
+      });
+    }
     if ((userRows[0]?.pause_dates ?? []).some((date) => new Date(date).toISOString().slice(0, 10) === deliveryDate)) {
       const error = new Error('Deliveries are paused for the selected date.');
       error.statusCode = 409;
@@ -60,10 +62,13 @@ const createOrder = asyncHandler(async (req, res) => {
       const orderId = await generateOrderId(product.slug, deliveryDate);
       const { rows } = await client.query(
         `INSERT INTO orders
-          (order_id, user_id, address_id, product_id, quantity, delivery_date, slot,
+          (order_id, user_id, address_id, dark_store_id, product_id, quantity, delivery_date, slot,
            price_at_order, total_amount, wallet_transaction_id, source)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ONE_TIME') RETURNING *`,
-        [orderId, req.user.id, addressId, productId, quantity, deliveryDate, selectedSlot, product.price, orderAmount, walletTransaction.id]
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ONE_TIME') RETURNING *`,
+        [
+          orderId, req.user.id, addressId, address.dark_store_id, productId, quantity,
+          deliveryDate, selectedSlot, product.price, orderAmount, walletTransaction.id,
+        ]
       );
       orders.push(rows[0]);
     }

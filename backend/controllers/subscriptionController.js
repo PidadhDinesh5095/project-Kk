@@ -214,7 +214,7 @@ const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
 
     const targetAddressId = addressId ?? ownedRows[0].address_id;
     const { rows: addressRows } = await client.query(
-      'SELECT id, is_serviceable FROM addresses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+      'SELECT id, is_serviceable, dark_store_id FROM addresses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE',
       [targetAddressId, req.user.id]
     );
     if (addressRows.length === 0) {
@@ -295,15 +295,17 @@ const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
         const totalAmount = Number((Number(product.price) * occurrence.qty).toFixed(2));
         await client.query(
           `INSERT INTO orders
-            (order_id, user_id, address_id, product_id, quantity, delivery_date, slot,
+            (order_id, user_id, address_id, dark_store_id, product_id, quantity, delivery_date, slot,
              price_at_order, total_amount, status, source, subscription_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SCHEDULED','SUBSCRIPTION',$10)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SCHEDULED','SUBSCRIPTION',$11)
            ON CONFLICT (subscription_id, delivery_date, slot) WHERE subscription_id IS NOT NULL
            DO UPDATE SET quantity = EXCLUDED.quantity, price_at_order = EXCLUDED.price_at_order,
-             total_amount = EXCLUDED.total_amount, status = 'SCHEDULED'`,
+             total_amount = EXCLUDED.total_amount, dark_store_id = EXCLUDED.dark_store_id,
+             status = 'SCHEDULED'`,
           [
-            orderId, subscription.user_id, subscription.address_id, subscription.product_id,
-            occurrence.qty, occurrence.date, occurrence.slot, product.price, totalAmount, subscription.id,
+            orderId, subscription.user_id, subscription.address_id, addressRows[0].dark_store_id,
+            subscription.product_id, occurrence.qty, occurrence.date, occurrence.slot,
+            product.price, totalAmount, subscription.id,
           ]
         );
       }

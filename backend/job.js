@@ -155,6 +155,17 @@ async function placeOrder(client, o, dryRun) {
   try {
     if (!dryRun) await client.query('begin');
 
+    const addressResult = await client.query(
+      `select is_serviceable, dark_store_id
+         from public.addresses
+        where id = $1 and user_id = $2 and deleted_at is null${dryRun ? '' : ' for update'}`,
+      [o.address_id, o.user_id]
+    );
+    if (!addressResult.rows.length || !addressResult.rows[0].is_serviceable) {
+      return finish({ status: 'ADDRESS_UNSERVICEABLE' });
+    }
+    const darkStoreId = addressResult.rows[0].dark_store_id;
+
     const w = await client.query(
       `select id, balance::text as balance, status
          from public.wallets where user_id = $1${dryRun ? '' : ' for update'}`,
@@ -206,14 +217,14 @@ async function placeOrder(client, o, dryRun) {
     );
     const ord = await client.query(
       `insert into public.orders
-         (order_id, user_id, address_id, product_id, quantity, delivery_date, slot,
+         (order_id, user_id, address_id, dark_store_id, product_id, quantity, delivery_date, slot,
           price_at_order, total_amount, status, wallet_transaction_id, source, subscription_id)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SCHEDULED',$10,'SUBSCRIPTION',$11)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SCHEDULED',$11,'SUBSCRIPTION',$12)
        on conflict (subscription_id, delivery_date, slot) where subscription_id is not null
        do nothing
        returning id`,
-      [orderId, o.user_id, o.address_id, o.product_id, o.quantity, o.delivery_date, o.slot,
-       o.price_at_order, o.total_amount, txn.rows[0].id, o.subscription_id]
+      [orderId, o.user_id, o.address_id, darkStoreId, o.product_id, o.quantity, o.delivery_date,
+       o.slot, o.price_at_order, o.total_amount, txn.rows[0].id, o.subscription_id]
     );
     if (!ord.rowCount) return finish({ status: 'ALREADY_EXISTS', detail: 'order unique index' });
 
@@ -351,7 +362,7 @@ export async function generateOrdersForSlot(
 
     const stat = {
       skipped: 0, created: 0, alreadyExisted: 0, insufficient: 0, walletIssues: 0, errors: 0,
-      eligible: 0, settled: 0,
+      addressIssues: 0, eligible: 0, settled: 0,
     };
     const orders = [];
     const eventsByUser = new Map();
@@ -490,6 +501,10 @@ export async function generateOrdersForSlot(
           console.log(`   => WALLET ${res.wallet.status} - order NOT created`);
           stat.walletIssues++;
           break;
+        case 'ADDRESS_UNSERVICEABLE':
+          console.log('   => ADDRESS UNSERVICEABLE or unavailable - order NOT created, wallet not charged');
+          stat.addressIssues++;
+          break;
         default:
           console.log(`   => ERROR, rolled back: ${res.error}`);
           stat.errors++;
@@ -512,7 +527,7 @@ export async function generateOrdersForSlot(
         `   orders ${dryRun ? 'that would be created' : 'created'}: ${stat.created}  (total ${dryRun ? 'to debit' : 'debited'}: ${inr(debitedCents / 100)})\n` +
         `   skipped by rules: ${stat.skipped}  | already processed: ${stat.alreadyExisted}\n` +
         `   insufficient balance: ${stat.insufficient} (${lowBalance.size} user(s) notified)\n` +
-        `   wallet problems: ${stat.walletIssues}  | errors: ${stat.errors}\n` +
+        `   wallet problems: ${stat.walletIssues}  | unavailable addresses: ${stat.addressIssues}  | errors: ${stat.errors}\n` +
         `   eligible: ${stat.eligible}  | settled: ${stat.settled}  | pending: ${stat.eligible - stat.settled}`
     );
     console.table(orders);
