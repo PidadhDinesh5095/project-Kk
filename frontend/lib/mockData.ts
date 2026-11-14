@@ -1,6 +1,6 @@
 import { Address, Invoice, Notification, Order, Product, Subscription, WalletTransaction } from '@/types/fresh';
 
-export const address: Address = { id: 'home', label: 'Home', line1: '12 Lake View Apartments, HSR Layout', city: 'Bangalore', pincode: '560102', isDefault: true };
+export const address: Address = { id: 'home', label: 'Home', line1: '12 Lake View Apartments, HSR Layout', city: 'Bangalore', pincode: '560102', isDefault: true, isServiceable: true };
 const milkNutrition = [
   { label: 'Protein (g)', value: '3.3' },
   { label: 'Sodium (mg)', value: '40.0' },

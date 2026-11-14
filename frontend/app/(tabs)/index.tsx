@@ -98,8 +98,7 @@ export default function HomeScreen() {
     walletBalance,
     products,
     orders,
-    notifications,
-    unreadNotifications,
+    unreadNotificationCount,
   } = useFreshStore();
 
   const greeting = useMemo(() => getGreeting(), []);
@@ -278,7 +277,7 @@ export default function HomeScreen() {
                   accessibilityLabel="Notifications"
                 >
                   <Bell size={24} color="#000000" />
-                  {unreadNotifications.length > 0 && (
+                  {unreadNotificationCount > 0 && (
                     <View className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
                   )}
                 </Pressable>

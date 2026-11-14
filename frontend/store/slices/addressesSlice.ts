@@ -38,9 +38,11 @@ type ApiAddress = {
   lng: number;
   delivery_instructions: DeliveryInstruction[];
   is_default: boolean;
+  is_serviceable: boolean;
 };
 
-type ApiResponse<T> = { data: T };
+type ApiResponse<T> = { data: T; message?: string };
+type AddressMutationResult = { address: Address; message: string };
 
 const instructionLabels: Record<DeliveryInstruction, string> = {
   PET_AT_HOME: 'Pet at home',
@@ -59,6 +61,7 @@ function toAddress(address: ApiAddress, city = ''): Address {
     city,
     pincode: address.pincode,
     isDefault: address.is_default,
+    isServiceable: address.is_serviceable,
     deliveryInstructions: address.delivery_instructions.map((item) => instructionLabels[item]).join(', '),
     lat: address.lat,
     lng: address.lng,
@@ -88,37 +91,47 @@ export const fetchAddresses = createAsyncThunk<Address[], void, { rejectValue: s
   },
 );
 
-export const saveAddress = createAsyncThunk<Address, AddressFields, { rejectValue: string }>(
+export const saveAddress = createAsyncThunk<AddressMutationResult, AddressFields, { rejectValue: string }>(
   'addresses/save',
   async ({ city = '', ...fields }, { rejectWithValue }) => {
     try {
       const response = await api.post<ApiResponse<ApiAddress>>('/addresses', fields);
-      return toAddress(response.data.data, city);
+      return {
+        address: toAddress(response.data.data, city),
+        message: response.data.message ?? 'Address saved',
+      };
     } catch (error) {
       return rejectWithValue(getErrorMessage(error, 'Unable to save address'));
     }
   },
 );
 
-export const updateAddress = createAsyncThunk<Address, UpdateAddressInput, { rejectValue: string }>(
+export const updateAddress = createAsyncThunk<AddressMutationResult, UpdateAddressInput, { rejectValue: string }>(
   'addresses/update',
   async ({ id, city = '', ...fields }, { rejectWithValue }) => {
     try {
       console.log('Updating address with fields:', fields);
       const response = await api.patch<ApiResponse<ApiAddress>>(`/addresses/${id}`, fields);
-      return toAddress(response.data.data, city);
+      return {
+        address: toAddress(response.data.data, city),
+        message: response.data.message ?? 'Address updated',
+      };
     } catch (error) {
       return rejectWithValue(getErrorMessage(error, 'Unable to update address'));
     }
   },
 );
 
-export const deleteAddress = createAsyncThunk<string, string, { rejectValue: string }>(
+export const deleteAddress = createAsyncThunk<
+  { id: string; message: string },
+  string,
+  { rejectValue: string }
+>(
   'addresses/delete',
   async (id, { rejectWithValue }) => {
     try {
-      await api.delete(`/addresses/${id}`);
-      return id;
+      const response = await api.delete<ApiResponse<null>>(`/addresses/${id}`);
+      return { id, message: response.data.message ?? 'Address deleted' };
     } catch (error) {
       return rejectWithValue(getErrorMessage(error, 'Unable to delete address'));
     }
@@ -188,10 +201,10 @@ const addressesSlice = createSlice({
       })
       .addCase(saveAddress.fulfilled, (state, action) => {
         state.isSaving = false;
-        if (action.payload.isDefault) {
+        if (action.payload.address.isDefault) {
           state.items = state.items.map((address) => ({ ...address, isDefault: false }));
         }
-        state.items.push(action.payload);
+        state.items.push(action.payload.address);
       })
       .addCase(saveAddress.rejected, (state, action) => {
         state.isSaving = false;
@@ -203,11 +216,19 @@ const addressesSlice = createSlice({
       })
       .addCase(updateAddress.fulfilled, (state, action) => {
         state.isUpdating = false;
-        if (action.payload.isDefault) {
+        const updatedAddress = action.payload.address;
+        const existing = state.items.find((address) => address.id === updatedAddress.id);
+        if (updatedAddress.isDefault) {
           state.items = state.items.map((address) => ({ ...address, isDefault: false }));
+        } else if (existing?.isDefault && !updatedAddress.isServiceable) {
+          state.items = state.items.map((address) => ({ ...address, isDefault: false }));
+          const nextDefault = state.items.find(
+            (address) => address.id !== updatedAddress.id && address.isServiceable,
+          );
+          if (nextDefault) nextDefault.isDefault = true;
         }
-        const index = state.items.findIndex((address) => address.id === action.payload.id);
-        if (index !== -1) state.items[index] = action.payload;
+        const index = state.items.findIndex((address) => address.id === updatedAddress.id);
+        if (index !== -1) state.items[index] = updatedAddress;
       })
       .addCase(updateAddress.rejected, (state, action) => {
         state.isUpdating = false;
@@ -219,9 +240,12 @@ const addressesSlice = createSlice({
       })
       .addCase(deleteAddress.fulfilled, (state, action) => {
         state.isDeleting = false;
-        const removed = state.items.find((address) => address.id === action.payload);
-        state.items = state.items.filter((address) => address.id !== action.payload);
-        if (removed?.isDefault && state.items.length > 0) state.items[0].isDefault = true;
+        const removed = state.items.find((address) => address.id === action.payload.id);
+        state.items = state.items.filter((address) => address.id !== action.payload.id);
+        if (removed?.isDefault) {
+          const nextDefault = state.items.find((address) => address.isServiceable);
+          if (nextDefault) nextDefault.isDefault = true;
+        }
       })
       .addCase(deleteAddress.rejected, (state, action) => {
         state.isDeleting = false;

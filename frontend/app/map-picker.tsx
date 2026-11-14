@@ -24,6 +24,7 @@ export default function MapPickerScreen() {
   const mapRef = useRef<MapView>(null);
   const params = useLocalSearchParams<{
     addressId?: string;
+    returnTo?: string;
     residenceType?: string;
     flatNoApartmentFloor?: string;
     blockTower?: string;
@@ -183,6 +184,7 @@ export default function MapPickerScreen() {
       pathname: '/address-setup',
       params: {
         addressId: params.addressId ?? '',
+        returnTo: params.returnTo ?? '',
         residenceType: params.residenceType ?? '',
         flatNoApartmentFloor: params.flatNoApartmentFloor ?? '',
         blockTower: params.blockTower ?? '',
@@ -220,17 +222,17 @@ export default function MapPickerScreen() {
         className="absolute inset-0 items-center justify-center"
         style={{ marginBottom: 36 }}
       >
-        <MapPin size={42} color="#023E8A" fill="#023E8A" />
+        <MapPin size={42} color="#ffffff" fill="#023E8A" />
       </View>
 
       {/* Top bar */}
       <View
-        className="absolute left-0 right-0 flex-row items-center gap-2 px-4"
-        style={{ top: Platform.OS === 'ios' ? 56 : 36 }}
+        className="absolute left-0 right-0 flex-row items-center gap-2 "
+        style={{ top: Platform.OS === 'ios' ? 56 : 20 }}
       >
         <Pressable
           onPress={() => router.back()}
-          className="ml-4 mt-2 h-12 w-12 items-center justify-center rounded-full bg-white shadow"
+          className="ml-2 h-12 w-12 items-center justify-center rounded-full bg-white shadow"
           hitSlop={12}
         >
           <ArrowLeft size={22} color="#111827" />
@@ -267,7 +269,7 @@ export default function MapPickerScreen() {
         </Pressable>
 
         <View className="flex-row items-start gap-2.5">
-          <MapPin size={18} color="#023E8A" fill="#023E8A" style={{ marginTop: 2 }} />
+          <MapPin size={18} color="#ffffff" fill="#023E8A" style={{ marginTop: 2 }} />
           <View className="flex-1">
             <Text className="text-[16px] font-bold text-[#111827]">
               {resolvingAddress ? 'Finding address…' : areaName || 'Move the map to select'}

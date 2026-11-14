@@ -1,0 +1,2 @@
+ALTER TABLE addresses
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;

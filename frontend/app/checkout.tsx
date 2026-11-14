@@ -15,7 +15,8 @@ import { formatDate } from '@/lib/cutoff';
 
 export default function CheckoutScreen() {
   const { addresses, walletBalance, products } = useFreshStore();
-  const deliveryAddress = addresses.find((address) => address.isDefault) ?? addresses[0];
+  const serviceableAddresses = addresses.filter((address) => address.isServiceable);
+  const deliveryAddress = serviceableAddresses.find((address) => address.isDefault) ?? serviceableAddresses[0];
   const item = products[0];
   const qty = 1;
   const itemTotal = item.price * qty;
@@ -24,6 +25,7 @@ export default function CheckoutScreen() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   const handlePlaceOrder = () => {
+    if (!deliveryAddress?.isServiceable) return;
     setShowSuccess(true);
   };
 
@@ -59,12 +61,17 @@ export default function CheckoutScreen() {
 
             <View className="flex-1">
               <Text className="text-[14px] font-bold text-[#111827]">
-                {deliveryAddress?.label ?? 'No delivery address saved'}
+                {deliveryAddress?.label ?? (addresses.length ? 'No serviceable address saved' : 'No delivery address saved')}
               </Text>
 
               <Text className="mt-0.5 text-[12px] text-[#64748B]">
                 {[deliveryAddress?.line1, deliveryAddress?.city, deliveryAddress?.pincode].filter(Boolean).join(', ')}
               </Text>
+              {!deliveryAddress && addresses.length > 0 ? (
+                <Text className="mt-1 text-[12px] font-semibold text-[#B91C1C]">
+                  Add an address within a delivery area to place your order.
+                </Text>
+              ) : null}
 
               {deliveryAddress?.recipientName ? (
                 <Text className="mt-2.5 text-[12px] font-bold text-[#023E8A]">
@@ -176,7 +183,8 @@ export default function CheckoutScreen() {
 
         <View className="mt-6">
           <PrimaryButton
-            label="Place Order"
+            label={deliveryAddress ? 'Place Order' : 'Add serviceable address'}
+            disabled={!deliveryAddress?.isServiceable}
             onPress={handlePlaceOrder}
           />
         </View>

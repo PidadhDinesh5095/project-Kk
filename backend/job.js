@@ -13,7 +13,7 @@ export { pool };
 const VALID_SLOTS = ['MORNING', 'EVENING'];
 const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
-// ---------- helpers ----------
+
 const parseJson = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
 
 // MORNING: run before this IST hour (after midnight) -> TODAY; at/after it (e.g. 10 PM) -> TOMORROW.
@@ -231,6 +231,46 @@ async function placeOrder(client, o, dryRun) {
   }
 }
 
+// ---------- batch order notifications ----------
+async function sendBatchOrderNotifications(createdOrdersByUser, slot, target, dryRun) {
+  if (!createdOrdersByUser.size) return;
+  console.log('\n' + '-'.repeat(80) + '\nORDER BATCH NOTIFICATIONS');
+
+  for (const [userId, orders] of createdOrdersByUser) {
+    const summary = orders
+      .map((order, index) => {
+        const product = order.productName || order.productSlug || 'Product';
+        return `${index + 1}. ${product} • Qty ${order.quantity} • ${inr(order.totalAmount)} • ${order.slot}`;
+      })
+      .join('\n');
+
+    const payload = {
+      type: 'GENERAL',
+      title: `${slot} slot orders confirmed`,
+      body: `Your ${slot.toLowerCase()} delivery orders for ${target} are confirmed.\n${summary}`,
+      data: {
+        screen: 'Orders',
+        slot,
+        deliveryDate: target,
+        orderCount: String(orders.length),
+      },
+      referenceId: `order-batch:${slot}:${target}:${userId}`,
+    };
+
+    if (dryRun) {
+      console.log(`   [DRY RUN] would notify user=${userId}: ${payload.body}`);
+      continue;
+    }
+
+    try {
+      await notify(userId, payload);
+      console.log(`   notified user=${userId}: ${payload.title}`);
+    } catch (err) {
+      console.log(`   FAILED to notify summary user=${userId}: ${err.message}`);
+    }
+  }
+}
+
 // ---------- low balance notifications ----------
 async function sendLowBalanceNotifications(lowBalance, slot, target, dryRun) {
   if (lowBalance.size) console.log('\n' + '-'.repeat(80) + '\nLOW BALANCE NOTIFICATIONS');
@@ -315,6 +355,7 @@ export async function generateOrdersForSlot(
     };
     const orders = [];
     const eventsByUser = new Map();
+    const createdOrdersByUser = new Map();
     const lowBalance = new Map(); // user_id -> { walletId, balance, neededCents, count }
     let debitedCents = 0;
 
@@ -384,6 +425,16 @@ export async function generateOrdersForSlot(
           );
           stat.created++;
           debitedCents += toCents(o.total_amount);
+          const createdOrder = {
+            orderId: res.orderId,
+            userId: sub.user_id,
+            productName: sub.product_name,
+            productSlug: sub.product_slug,
+            quantity: o.quantity,
+            totalAmount: Number(o.total_amount),
+            slot,
+            deliveryDate: target,
+          };
           orders.push({ order_id: res.orderId, ...o });
           if (!dryRun) {
             const userEvents = eventsByUser.get(sub.user_id) || [];
@@ -393,12 +444,17 @@ export async function generateOrdersForSlot(
               productName: sub.product_name,
               totalAmount: Number(o.total_amount),
               deliveryDate: target,
+              slot,
             };
             userEvents.push(
               { type: EVENT_TYPES.ORDER_CONFIRMED, payload },
               { type: EVENT_TYPES.INVOICE_GENERATE, payload }
             );
             eventsByUser.set(sub.user_id, userEvents);
+
+            const userOrders = createdOrdersByUser.get(sub.user_id) || [];
+            userOrders.push(createdOrder);
+            createdOrdersByUser.set(sub.user_id, userOrders);
           }
           break;
         case 'WOULD_CREATE':
@@ -443,8 +499,12 @@ export async function generateOrdersForSlot(
 
     for (const [userId, events] of eventsByUser) emitEvents(userId, events);
 
-    // one notification per user, even if several subscriptions failed
-    if (!deferNotify) await sendLowBalanceNotifications(lowBalance, slot, target, dryRun);
+    if (!deferNotify) {
+      // one summary notification per user for all orders created in this slot run
+      await sendBatchOrderNotifications(createdOrdersByUser, slot, target, dryRun);
+      // one notification per user, even if several subscriptions failed
+      await sendLowBalanceNotifications(lowBalance, slot, target, dryRun);
+    }
 
     console.log('\n' + '='.repeat(80));
     console.log(

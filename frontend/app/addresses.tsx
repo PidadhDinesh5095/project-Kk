@@ -1,10 +1,10 @@
 
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   ActivityIndicator,
   Animated,
+  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import {
   ArrowLeft,
+  CircleAlert,
+  CircleCheck,
   MapPin,
   Plus,
   Trash2,
@@ -19,6 +21,7 @@ import {
 import { colors } from '@/components/FreshComponents';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
+  clearAddressError,
   deleteAddress,
   fetchAddresses,
   setDefaultAddress,
@@ -26,11 +29,16 @@ import {
 import { useFreshStore } from '@/store/useFreshStore';
 import { Address } from '@/types/fresh';
 
+type AddressDeleteModal =
+  | { type: 'confirm'; address: Address }
+  | { type: 'status'; title: string; message: string; isError: boolean };
+
 export default function AddressesScreen() {
   const { addresses } = useFreshStore();
   const dispatch = useAppDispatch();
   const { isLoading, isDeleting, settingDefaultAddressId, error, hasLoaded } = useAppSelector((state) => state.addresses);
   const skeletonOpacity = useRef(new Animated.Value(0.45)).current;
+  const [deleteModal, setDeleteModal] = useState<AddressDeleteModal | null>(null);
 
   useEffect(() => {
     if (!isLoading) {
@@ -83,30 +91,42 @@ export default function AddressesScreen() {
   };
 
   const confirmDelete = (address: Address) => {
-    Alert.alert('Delete address?', 'This address will be removed from your account.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          void dispatch(deleteAddress(address.id));
-        },
-      },
-    ]);
+    setDeleteModal({ type: 'confirm', address });
+  };
+
+  const handleDelete = async () => {
+    if (deleteModal?.type !== 'confirm' || isDeleting) return;
+    const result = await dispatch(deleteAddress(deleteModal.address.id));
+    if (deleteAddress.fulfilled.match(result)) {
+      setDeleteModal({
+        type: 'status',
+        title: 'Address deleted',
+        message: result.payload.message,
+        isError: false,
+      });
+    } else {
+      const message = result.payload ?? 'Unable to delete address. Please try again.';
+      dispatch(clearAddressError());
+      setDeleteModal({
+        type: 'status',
+        title: 'Unable to delete address',
+        message,
+        isError: true,
+      });
+    }
   };
 
   return (
     <View className="flex-1 bg-[#F7F9FC]">
       {/* Back */}
-      <Pressable
-        className="ml-4 mt-2"
-        onPress={() => router.back()}
-        hitSlop={12}
-      >
-        <Text className="text-[32px] leading-[30px] text-[#111827]">
+      <View className="flex-row items-center px-4 mb-4 mt-2 pt-2">
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
           <ArrowLeft size={28} color="#111827" />
+        </Pressable>
+        <Text className="ml-3 text-[24px] font-raleway-semibold text-[#111827]">
+          Delivery Addresses
         </Text>
-      </Pressable>
+      </View>
 
       <ScrollView
         contentContainerStyle={{
@@ -115,9 +135,7 @@ export default function AddressesScreen() {
         }}
       >
         {/* Title */}
-        <Text className="mb-4 mt-2 text-[22px] font-raleway-semibold text-[#111827]">
-          Delivery Addresses
-        </Text>
+        
         {isLoading && (
           <Animated.View
             accessibilityLabel="Loading addresses"
@@ -162,52 +180,55 @@ export default function AddressesScreen() {
                 />
               </View>
 
-              <View className="flex-1">
-                {/* Label */}
-                <View className="flex-row items-center gap-2">
+              <View className="flex-1 flex-row items-start justify-between gap-2">
+                <View className="flex-1">
                   <Text className="text-[18px] font-raleway-bold text-[#111827]">
-                    {address.line1} {address.isDefault && (
-                      <View className="rounded-lg bg-[#023E8A] px-1.5 py-0.5">
-                        <Text className="text-[12px]  font-bold  text-white">
-                          Default
-                        </Text>
-                      </View>
-                    )}
+                    {address.line1}
                   </Text>
 
+                  {/* Address */}
+                  <Text className="mt-1.5 text-[13px] text-[#64748B]">
+                    {address.label}
+                  </Text>
 
+                  {/* City */}
+                  <Text className="mt-0.5 text-[13px] text-[#64748B]">
+                    {address.city ? `${address.city} - ` : ''}{address.pincode}
+                  </Text>
+
+                  {/* Recipient */}
+                  {address.recipientName ? (
+                    <Text className="mt-1.5 text-[12px] font-raleway-semibold text-[#111827]">
+                      For: {address.recipientName} ·{' '}
+                      {address.recipientPhone}
+                    </Text>
+                  ) : null}
+
+                  {/* Instructions */}
+                  {address.deliveryInstructions ? (
+                    <Text className="mt-1.5 text-[12px] font-raleway-semibold text-[#023E8A]">
+                      Instructions: {address.deliveryInstructions}
+                    </Text>
+                  ) : null}
                 </View>
-
-                {/* Address */}
-                <Text className="mt-1.5 text-[13px] text-[#64748B]">
-                  {address.label}
-                </Text>
-
-                {/* City */}
-                <Text className="mt-0.5 text-[13px] text-[#64748B]">
-                  {address.city ? `${address.city} - ` : ''}{address.pincode}
-                </Text>
-
-                {/* Recipient */}
-                {address.recipientName ? (
-                  <Text className="mt-1.5 text-[12px] font-raleway-semibold text-[#111827]">
-                    For: {address.recipientName} ·{' '}
-                    {address.recipientPhone}
-                  </Text>
-                ) : null}
-
-                {/* Instructions */}
-                {address.deliveryInstructions ? (
-                  <Text className="mt-1.5 text-[12px] font-raleway-semibold text-[#023E8A]">
-                    Instructions: {address.deliveryInstructions}
-                  </Text>
-                ) : null}
+                <View className="items-end gap-1">
+                  {address.isDefault && (
+                    <View className="rounded-lg bg-[#023E8A] px-1.5 py-0.5">
+                      <Text className="text-[12px] font-bold text-white">Default</Text>
+                    </View>
+                  )}
+                  <View className={`rounded-full px-2.5 py-1 ${address.isServiceable ? 'bg-[#DCFCE7]' : 'bg-[#FEE2E2]'}`}>
+                    <Text className={`text-[11px] font-raleway-semibold ${address.isServiceable ? 'text-[#15803D]' : 'text-[#B91C1C]'}`}>
+                      {address.isServiceable ? 'Serviceable' : 'Not serviceable'}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
 
             {/* Actions */}
             <View className="mt-3.5 flex-row gap-2 border-t border-[#F1F5F9] pt-3.5">
-              {!address.isDefault && (
+              {!address.isDefault && address.isServiceable && (
                 <Pressable
                   className={`flex-1 flex-row items-center justify-center gap-2 rounded-full border border-[#64748B] py-2.5 ${settingDefaultAddressId !== null ? 'opacity-60' : ''}`}
                   disabled={settingDefaultAddressId !== null}
@@ -281,6 +302,78 @@ export default function AddressesScreen() {
         </Pressable>}
       </ScrollView>
 
+      <Modal
+        visible={deleteModal !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!isDeleting) setDeleteModal(null);
+        }}
+      >
+        <View className="flex-1 items-center justify-center bg-black/50 px-6">
+          <View className="w-full max-w-[380px] rounded-[24px] bg-white px-6 pb-6 pt-7">
+            <View
+              className={`mb-4 h-14 w-14 self-center items-center justify-center rounded-full ${
+                deleteModal?.type === 'status' && !deleteModal.isError
+                  ? 'bg-[#DCFCE7]'
+                  : deleteModal?.type === 'status'
+                    ? 'bg-[#FEE2E2]'
+                    : 'bg-[#FFF1F2]'
+              }`}
+            >
+              {deleteModal?.type === 'status' && !deleteModal.isError ? (
+                <CircleCheck size={28} color="#16A34A" />
+              ) : deleteModal?.type === 'status' ? (
+                <CircleAlert size={28} color={colors.red} />
+              ) : (
+                <Trash2 size={26} color={colors.red} />
+              )}
+            </View>
+
+            <Text className="text-center text-[20px] font-raleway-semibold text-[#111827]">
+              {deleteModal?.type === 'confirm' ? 'Delete address?' : deleteModal?.title}
+            </Text>
+            <Text className="mt-2 text-center text-[14px] font-raleway-semibold leading-5 text-[#64748B]">
+              {deleteModal?.type === 'confirm'
+                ? `Remove ${deleteModal.address.line1} from your saved addresses? Addresses assigned to an active or paused subscription or an upcoming order can't be deleted.`
+                : deleteModal?.message}
+            </Text>
+
+            <View className="mt-6 flex-row gap-3">
+              {deleteModal?.type === 'confirm' && (
+                <Pressable
+                  className="h-12 flex-1 items-center justify-center rounded-full border border-[#E2E8F0]"
+                  disabled={isDeleting}
+                  onPress={() => setDeleteModal(null)}
+                >
+                  <Text className="text-[14px] font-raleway-semibold text-[#475569]">Cancel</Text>
+                </Pressable>
+              )}
+              <Pressable
+                className={`h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full ${
+                  deleteModal?.type === 'confirm' ? 'bg-[#EF4444]' : 'bg-[#023E8A]'
+                } ${deleteModal?.type === 'confirm' && isDeleting ? 'opacity-70' : ''}`}
+                disabled={deleteModal?.type === 'confirm' && isDeleting}
+                onPress={() => {
+                  if (deleteModal?.type === 'confirm') {
+                    void handleDelete();
+                  } else {
+                    setDeleteModal(null);
+                  }
+                }}
+              >
+                {isDeleting && <ActivityIndicator size="small" color="#FFFFFF" />}
+                <Text className="text-[14px] font-raleway-semibold text-white">
+                  {deleteModal?.type === 'confirm'
+                    ? isDeleting ? 'Deleting...' : 'Delete'
+                    : 'OK'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Plus,
   ShieldCheck,
+  Wallet,
 } from 'lucide-react-native';
 import { Product } from '@/types/fresh';
 import { router } from 'expo-router';
@@ -35,9 +36,7 @@ export function WalletChip({
       onPress={onPress}
       className="flex-row items-center gap-[5px] rounded-[18px] bg-[#EEF3FF] px-[11px] py-2"
     >
-      <Text className="text-[13px] font-raleway-semibold text-[#023E8A]">
-        ▣
-      </Text>
+      <Wallet size={16} color={colors.primary} />
 
       <Text className="text-[12px]  text-[#023E8A]">
         ₹{balance.toFixed(2)}

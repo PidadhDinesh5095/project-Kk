@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -13,6 +14,8 @@ import {
   Bell,
   Building2,
   Check,
+  CircleAlert,
+  CircleCheck,
   Clock,
   DoorOpen,
   Footprints,
@@ -28,6 +31,7 @@ import {
   AddressFields,
   DeliveryInstruction,
   ResidenceType as ApiResidenceType,
+  clearAddressError,
   saveAddress,
   updateAddress,
 } from '@/store/slices/addressesSlice';
@@ -39,6 +43,12 @@ const residenceTypes = [
 ] as const;
 
 type ResidenceType = (typeof residenceTypes)[number]['key'];
+type AddressResultModal = {
+  title: string;
+  message: string;
+  tone: 'success' | 'warning' | 'error';
+  destination: 'addresses' | 'subscriptions' | 'tabs' | 'complete-profile' | null;
+};
 
 // Each instruction can conflict with others — selecting one clears/disables its conflicts.
 const instructionOptions = [
@@ -52,19 +62,19 @@ const instructionOptions = [
 
 const CONFLICTS: Record<string, string[]> = {
   'Pet at home': ['Ring bell', 'At security'],
-  'Ring bell': ['Pet at home','At security',],
+  'Ring bell': ['Pet at home', 'At security',],
   'Place in bag': ['Leave at door', 'At security', 'At shoe rack',],
   'Leave at door': ['Place in bag', 'At security', 'At shoe rack',],
-  'At shoe rack': [ 'Place in bag', 'Leave at door','At security',],
+  'At shoe rack': ['Place in bag', 'Leave at door', 'At security',],
 };
 
 export default function AddressSetupScreen() {
   const { addresses, profile } = useFreshStore();
   const dispatch = useAppDispatch();
   const addressLoading = useAppSelector((state) => state.addresses.isSaving || state.addresses.isUpdating);
-  const addressError = useAppSelector((state) => state.addresses.error);
   const params = useLocalSearchParams<{
     addressId?: string;
+    returnTo?: string;
     residenceType?: string;
     flatNoApartmentFloor?: string;
     blockTower?: string;
@@ -87,6 +97,7 @@ export default function AddressSetupScreen() {
   const [landmark, setLandmark] = useState('');
   const [currentLocationText, setCurrentLocationText] = useState('');
   const [instructions, setInstructions] = useState<string[]>([]);
+  const [resultModal, setResultModal] = useState<AddressResultModal | null>(null);
 
   // Populate address fields when editing or returning from the map picker.
   useEffect(() => {
@@ -168,35 +179,68 @@ export default function AddressSetupScreen() {
       };
 
       if (params.addressId) {
-        await dispatch(updateAddress({ ...addressFields, id: params.addressId })).unwrap();
-        router.replace('/addresses');
+        const result = await dispatch(updateAddress({ ...addressFields, id: params.addressId })).unwrap();
+        const isServiceable = result.address.isServiceable;
+        setResultModal({
+          title: isServiceable ? 'Address updated' : 'Address updated, service unavailable',
+          message: isServiceable
+            ? result.message
+            : `${result.message}. Delivery is not available at this location.`,
+          tone: isServiceable ? 'success' : 'warning',
+          destination: params.returnTo === 'subscriptions' ? 'subscriptions' : 'addresses',
+        });
         return;
       }
 
-      await dispatch(saveAddress({
+      const result = await dispatch(saveAddress({
         ...addressFields,
-        isDefault: addresses.length === 0,
+        isDefault: !addresses.some((address) => address.isServiceable),
       })).unwrap();
 
-      router.replace(profile.profileCompleted ? '/(tabs)' : '/complete-profile');
-    } catch {
-      // The rejected thunk stores the API error in Redux for display.
+      const isServiceable = result.address.isServiceable;
+      setResultModal({
+        title: isServiceable ? 'Address saved' : 'Service not available',
+        message: result.message,
+        tone: isServiceable ? 'success' : 'warning',
+        destination: params.returnTo === 'subscriptions'
+          ? 'subscriptions'
+          : profile.profileCompleted
+            ? 'tabs'
+            : 'complete-profile',
+      });
+    } catch (error) {
+      const message = typeof error === 'string'
+        ? error
+        : error instanceof Error
+          ? error.message
+          : 'Unable to save the address. Please try again.';
+      dispatch(clearAddressError());
+      const cannotEdit = params.addressId && message.toLowerCase().includes("can't be changed");
+      setResultModal({
+        title: cannotEdit ? "Address can't be edited" : params.addressId ? 'Unable to update address' : 'Unable to save address',
+        message,
+        tone: cannotEdit ? 'warning' : 'error',
+        destination: null,
+      });
     }
   };
 
   return (
     <View className="flex-1  bg-white">
-      <Pressable className="ml-4 mt-2" onPress={() => router.back()} hitSlop={12}>
-        <ArrowLeft size={28} color="#111827" />
-      </Pressable>
-
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}>
-        <Text className="mt-2 text-[22px] font-raleway-semibold text-[#111827]">
+      <View className="flex-row items-center px-4 mb-4 mt-2 pt-2">
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Go back">
+          <ArrowLeft size={28} color="#111827" />
+        </Pressable>
+        <Text className="ml-4 text-[24px] font-raleway-semibold text-[#111827]">
           {params.addressId ? 'Edit Address' : 'Address'}
         </Text>
+      </View>
+
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}>
+
 
         {/* Residence Type */}
-        <Text className="mb-2 mt-5 text-[14px] font-raleway-semibold text-[#64748B]">
+        <Text className="mb-2  text-[14px] font-raleway-semibold text-[#64748B]">
           Select your Residence Type
         </Text>
 
@@ -207,21 +251,18 @@ export default function AddressSetupScreen() {
               <Pressable
                 key={key}
                 onPress={() => setResidenceType(key)}
-                className={`flex-1 flex-row items-center gap-2 rounded-full px-4 py-3.5 ${
-                  selected ? 'bg-[#111827]' : 'bg-[#F5F7FB]'
-                }`}
+                className={`flex-1 flex-row items-center gap-2 rounded-full px-4 py-3.5 ${selected ? 'bg-[#111827]' : 'bg-[#F5F7FB]'
+                  }`}
               >
                 <View
-                  className={`h-[18px] w-[18px] items-center justify-center rounded-full border-2 ${
-                    selected ? 'border-[#023E8A] bg-[#023E8A]' : 'border-[#CBD5E1]'
-                  }`}
+                  className={`h-[18px] w-[18px] items-center justify-center rounded-full border-2 ${selected ? 'border-[#023E8A] bg-[#023E8A]' : 'border-[#CBD5E1]'
+                    }`}
                 >
                   {selected && <View className="h-[8px] w-[8px] rounded-full bg-black" />}
                 </View>
                 <Text
-                  className={`text-[13px] font-raleway-semibold ${
-                    selected ? 'text-white' : 'text-[#111827]'
-                  }`}
+                  className={`text-[13px] font-raleway-semibold ${selected ? 'text-white' : 'text-[#111827]'
+                    }`}
                 >
                   {key}
                 </Text>
@@ -230,7 +271,7 @@ export default function AddressSetupScreen() {
           })}
         </View>
 
-         {/* Current Location — filled from the map picker, tap to change */}
+        {/* Current Location — filled from the map picker, tap to change */}
         <Text className="mb-2 mt-2.5 text-[15px] font-raleway-semibold text-[#111827]">
           Current Location <Text className="text-red-500">*</Text>
         </Text>
@@ -240,6 +281,7 @@ export default function AddressSetupScreen() {
               pathname: '/map-picker',
               params: {
                 addressId: params.addressId ?? '',
+                returnTo: params.returnTo ?? '',
                 residenceType: residenceType === 'Community/Apartment' ? 'COMMUNITY_APARTMENT' : 'INDEPENDENT',
                 flatNoApartmentFloor: flatDetails,
                 blockTower,
@@ -260,10 +302,6 @@ export default function AddressSetupScreen() {
             {currentLocationText || 'Tap to select your location on map'}
           </Text>
         </Pressable>
-        {!!addressError && (
-          <Text className="mt-1 text-[13px] font-raleway-semibold text-red-600">{addressError}</Text>
-        )}
-
         {/* Flat / Apartment */}
         <Text className="mb-2 mt-6 text-[15px] font-raleway-semibold text-[#111827]">
           Flat No./Apartment Name/Floor <Text className="text-red-500">*</Text>
@@ -318,7 +356,7 @@ export default function AddressSetupScreen() {
           onChangeText={setLandmark}
         />
 
-       
+
 
         {/* Delivery Instructions */}
         <Text className="mb-2 mt-6 text-[15px] font-raleway-semibold text-[#111827]">
@@ -335,13 +373,12 @@ export default function AddressSetupScreen() {
                 key={key}
                 onPress={() => !disabled && toggleInstruction(key)}
                 disabled={disabled}
-                className={`w-[31%] items-center gap-1.5 rounded-2xl border px-2 py-3.5 ${
-                  selected
+                className={`w-[31%] items-center gap-1.5 rounded-2xl border px-2 py-3.5 ${selected
                     ? 'border-[#111827] bg-[#111827]'
                     : disabled
                       ? 'border-[#E2E8F0] opacity-40'
                       : 'border-[#E2E8F0]'
-                }`}
+                  }`}
               >
                 <View className="relative">
                   <Icon size={26} color={selected ? '#023E8A' : '#64748B'} />
@@ -352,9 +389,8 @@ export default function AddressSetupScreen() {
                   )}
                 </View>
                 <Text
-                  className={`text-center text-[12px] font-raleway-semibold ${
-                    selected ? 'text-white' : 'text-[#111827]'
-                  }`}
+                  className={`text-center text-[12px] font-raleway-semibold ${selected ? 'text-white' : 'text-[#111827]'
+                    }`}
                 >
                   {key}
                 </Text>
@@ -387,7 +423,62 @@ export default function AddressSetupScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={resultModal !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setResultModal(null)}
+      >
+        <View className="flex-1 items-center justify-center bg-black/50 px-6">
+          <View className="w-full max-w-[380px] rounded-[24px] bg-white px-6 pb-6 pt-7">
+            <View className={`mb-4 h-14 w-14 self-center items-center justify-center rounded-full ${
+              resultModal?.tone === 'success'
+                ? 'bg-[#DCFCE7]'
+                : resultModal?.tone === 'warning'
+                  ? 'bg-[#FEF3C7]'
+                  : 'bg-[#FEE2E2]'
+            }`}>
+              {resultModal?.tone === 'success' ? (
+                <CircleCheck size={28} color="#16A34A" />
+              ) : (
+                <CircleAlert
+                  size={28}
+                  color={resultModal?.tone === 'warning' ? '#B45309' : colors.red}
+                />
+              )}
+            </View>
+            <Text className="text-center text-[20px] font-raleway-semibold text-[#111827]">
+              {resultModal?.title}
+            </Text>
+            <Text className="mt-2 text-center text-[14px] font-raleway-semibold leading-5 text-[#64748B]">
+              {resultModal?.message}
+            </Text>
+            <Pressable
+              className={`mt-6 h-12 items-center justify-center rounded-full ${
+                resultModal?.tone === 'success'
+                  ? 'bg-[#023E8A]'
+                  : resultModal?.tone === 'warning'
+                    ? 'bg-[#B45309]'
+                    : 'bg-[#EF4444]'
+              }`}
+              onPress={() => {
+                const destination = resultModal?.destination;
+                setResultModal(null);
+                if (destination === 'addresses') router.replace('/addresses');
+                if (destination === 'subscriptions') router.replace('/subscriptions');
+                if (destination === 'tabs') router.replace('/(tabs)');
+                if (destination === 'complete-profile') router.replace('/complete-profile');
+              }}
+            >
+              <Text className="text-[15px] font-raleway-semibold text-white">
+                {resultModal?.destination ? 'Continue' : 'Close'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
-           

@@ -7,7 +7,6 @@ import __cjsModule574 from '../middleware/auth.middleware.js';
 const { requireAuth } = __cjsModule574;
 
 router.use(requireAuth);
-router.get('/check-serviceability', address.checkServiceability);
 router.post('/', validate(schemas.createAddress), address.createAddress);
 router.get('/', address.listAddresses);
 router.patch('/:id', validate(schemas.updateAddress), address.updateAddress);

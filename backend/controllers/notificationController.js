@@ -9,20 +9,27 @@ const listNotifications = asyncHandler(async (req, res) => {
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 10;
   const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
 
-  const [{ rows: totalRows }, { rows }] = await Promise.all([
-    pool.query('SELECT COUNT(*)::int AS total FROM notifications WHERE user_id = $1', [req.user.id]),
+  const [{ rows: countRows }, { rows }] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE read = false)::int AS unread_total
+         FROM notifications
+        WHERE user_id = $1`,
+      [req.user.id]
+    ),
     pool.query(
       'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
       [req.user.id, limit, offset]
     ),
   ]);
 
-  const total = Number(totalRows[0]?.total ?? 0);
+  const total = Number(countRows[0]?.total ?? 0);
   return ApiResponse.success(res, {
     items: rows,
     offset,
     limit,
     total,
+    unreadTotal: Number(countRows[0]?.unread_total ?? 0),
     hasMore: offset + rows.length < total,
   });
 });

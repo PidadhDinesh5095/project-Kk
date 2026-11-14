@@ -82,7 +82,8 @@ export default function SubscribeScreen() {
   const editingSubscription = subscriptions.find((item) => item.id === subscriptionId);
   const isEditing = Boolean(editingSubscription);
   const product = products.find((item: Product) => item.id === id) ?? products[0];
-  const defaultAddress = addresses.find((item: Address) => item.isDefault) ?? addresses[0];
+  const serviceableAddresses = addresses.filter((item: Address) => item.isServiceable);
+  const defaultAddress = serviceableAddresses.find((item: Address) => item.isDefault) ?? serviceableAddresses[0];
   const [selectedAddressId, setSelectedAddressId] = useState('');
 
   const [frequency, setFrequency] = useState<'Daily' | 'Alternate' | 'Custom'>('Daily');
@@ -130,7 +131,7 @@ export default function SubscribeScreen() {
   useEffect(() => {
     if (editingSubscription && !selectedAddressId) {
       const currentAddressId = editingSubscription.deliveryAddressId ?? editingSubscription.addressId;
-      if (currentAddressId) {
+      if (currentAddressId && serviceableAddresses.some((item: Address) => item.id === currentAddressId)) {
         setSelectedAddressId(currentAddressId);
         return;
       }
@@ -139,7 +140,7 @@ export default function SubscribeScreen() {
     if (!isEditing && defaultAddress && !selectedAddressId) {
       setSelectedAddressId(defaultAddress.id);
     }
-  }, [defaultAddress, editingSubscription, isEditing, selectedAddressId]);
+  }, [defaultAddress, editingSubscription, isEditing, selectedAddressId, serviceableAddresses]);
 
   useEffect(() => {
     if (!addressesHaveLoaded && !addressesAreLoading) {
@@ -155,7 +156,17 @@ export default function SubscribeScreen() {
   const effectiveStartDate = getDateKey(selectedDate) < firstAvailableDate
     ? dateFromKey(firstAvailableDate)
     : selectedDate;
-  const selectedAddress = addresses.find((item: Address) => item.id === selectedAddressId) ?? defaultAddress;
+  const selectedAddress = serviceableAddresses.find((item: Address) => item.id === selectedAddressId) ?? defaultAddress;
+  const canSubmit = Boolean(
+    product &&
+    selectedAddress?.isServiceable &&
+    selectedSlots.length > 0 &&
+    (frequency !== 'Custom' || selectedDays.length > 0) &&
+    (!isEditing || editingSubscription?.status === 'Active') &&
+    (isEditing || effectiveStartDate) &&
+    !subscriptionIsCreating &&
+    !subscriptionIsUpdating
+  );
 
   const activeDayRows = useMemo(
     () =>
@@ -195,9 +206,9 @@ export default function SubscribeScreen() {
   const handleSubmit = async () => {
     if (selectedSlots.length === 0 || !product) return;
 
-    const nextAddressId = selectedAddress?.id ?? selectedAddressId ?? editingSubscription?.deliveryAddressId ?? editingSubscription?.addressId;
+    const nextAddressId = selectedAddress?.id ?? selectedAddressId;
 
-    if (!isEditing && !nextAddressId) return;
+    if (!nextAddressId || !selectedAddress?.isServiceable) return;
 
     const schedule = {
       frequency,
@@ -309,7 +320,7 @@ export default function SubscribeScreen() {
                 key={item}
                 onPress={() => setFrequency(item)}
                 className={`flex-row items-center justify-center gap-2 rounded-[18px] px-4 py-2.5 ${
-                  active ? 'bg-[#023E8A]' : 'bg-[#F1F1EE]'
+                  active ? 'bg-[#023E8A]' : 'bg-neutral-100'
                 }`}
               >
                 
@@ -338,7 +349,7 @@ export default function SubscribeScreen() {
                 key={slot}
                 onPress={() => toggleSlot(slot)}
                 className={`flex-row items-center justify-center gap-2 rounded-[18px] px-4 py-2.5 ${
-                  isSelected ? 'bg-[#023E8A]' : 'bg-[#F1F1EE]'
+                  isSelected ? 'bg-[#023E8A]' : 'bg-neutral-100'
                 }`}
               >
                 {isSelected && <Check size={12} color="#fff" />}
@@ -371,9 +382,13 @@ export default function SubscribeScreen() {
                   <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Retry</Text>
                 </Pressable>
               </View>
-            ) : addresses.length === 0 ? (
+            ) : serviceableAddresses.length === 0 ? (
               <View className="rounded-[14px] border border-[#E2E8F0] bg-white p-3">
-                <Text className="text-[13px] text-[#64748B]">Add a delivery address to continue.</Text>
+                <Text className="text-[13px] text-[#64748B]">
+                  {addresses.length === 0
+                    ? 'Add a serviceable delivery address to continue.'
+                    : 'None of your saved addresses are currently serviceable. Add an address in a covered area to continue.'}
+                </Text>
                 <Pressable className="mt-2 self-start" onPress={() => router.push('/address-setup')}>
                   <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Add address</Text>
                 </Pressable>
@@ -386,9 +401,21 @@ export default function SubscribeScreen() {
                   </View>
 
                   <View className="flex-1">
-                    <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
-                      {selectedAddress.line1 || selectedAddress.label}{selectedAddress.isDefault ? ' · Default' : ''}
-                    </Text>
+                    <View className="flex-row items-start justify-between gap-2">
+                      <Text numberOfLines={1} className="flex-1 text-[13px] font-raleway-bold text-[#111827]">
+                        {selectedAddress.line1 || selectedAddress.label}
+                      </Text>
+                      <View className="items-end gap-1">
+                        {selectedAddress.isDefault && (
+                          <View className="rounded-full bg-[#E0EAFF] px-2 py-0.5">
+                            <Text className="text-[10px] font-raleway-semibold text-[#023E8A]">Default</Text>
+                          </View>
+                        )}
+                        <View className="rounded-full bg-[#DCFCE7] px-2 py-0.5">
+                          <Text className="text-[10px] font-raleway-semibold text-[#15803D]">Serviceable</Text>
+                        </View>
+                      </View>
+                    </View>
                     <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
                       {[selectedAddress.city, selectedAddress.pincode].filter(Boolean).join(', ')}
                     </Text>
@@ -413,7 +440,7 @@ export default function SubscribeScreen() {
 
                 <Pressable
                   onPress={() => setShowDatePicker(true)}
-                  className="mt-3 flex-row items-center justify-between rounded-[18px] bg-[#f1f1ee] py-3.5 pl-4 pr-6"
+                  className="mt-3 flex-row items-center justify-between rounded-[18px] bg-neutral-100 py-3.5 pl-4 pr-6"
                 >
                   <Text className="text-[18px] font-bold text-[#111827]">
                     {formatDisplayDate(effectiveStartDate)}
@@ -432,7 +459,7 @@ export default function SubscribeScreen() {
             <Text className="text-[16px] font-raleway-bold text-[#111827]">
               Select Quantity
             </Text>
-            <View className="mt-3 flex-row items-center justify-between rounded-[18px]  bg-[#f1f1ee] px-4 py-2.5">
+            <View className="mt-3 flex-row items-center justify-between rounded-[18px]  bg-neutral-100 px-4 py-2.5">
               <View className="flex-row items-center gap-2">
                 <Text className="text-[18px] font-bold text-[#111827]">{dailyQty}</Text>
               </View>
@@ -563,8 +590,8 @@ export default function SubscribeScreen() {
       <View className="absolute bottom-0 left-0 right-0 bg-[#f6f5f3] px-4 pb-6 pt-3">
         <Pressable
           onPress={handleSubmit}
-          disabled={subscriptionIsCreating || subscriptionIsUpdating || (!isEditing && !selectedAddress) || selectedSlots.length === 0}
-          className="h-16 items-center justify-center rounded-[30px] bg-[#023E8A]"
+          disabled={!canSubmit}
+          className={`h-16 items-center justify-center rounded-[30px] bg-[#023E8A] ${canSubmit ? '' : 'opacity-50'}`}
         >
           <Text className="text-[20px] font-raleway-bold text-white">
             {isEditing
@@ -596,7 +623,7 @@ export default function SubscribeScreen() {
             </Text>
 
             <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ gap: 10 }} showsVerticalScrollIndicator>
-              {addresses.map((address: Address) => {
+              {serviceableAddresses.map((address: Address) => {
                 const isSelected = selectedAddressId === address.id || (!selectedAddressId && address.isDefault);
 
                 return (
@@ -611,18 +638,30 @@ export default function SubscribeScreen() {
                     className={`min-h-[72px] flex-row items-center gap-3 rounded-[12px] border p-3 ${isSelected ? 'border-[#023E8A] bg-[#EEF3FF]' : 'border-[#E2E8F0] bg-white'}`}
                   >
                     <MapPin size={17} color={isSelected ? '#023E8A' : '#64748B'} />
-                    <View className="flex-1">
-                      <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
-                        {address.line1 || address.label}{address.isDefault ? ' · Default' : ''}
-                      </Text>
-                      <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
-                        {[address.city, address.pincode].filter(Boolean).join(', ')}
-                      </Text>
-                      {address.deliveryInstructions ? (
-                        <Text numberOfLines={1} className="mt-0.5 text-[11px] text-[#64748B]">
-                          {address.deliveryInstructions}
+                    <View className="flex-1 flex-row items-start justify-between gap-2">
+                      <View className="flex-1">
+                        <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
+                          {address.line1 || address.label}
                         </Text>
-                      ) : null}
+                        <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
+                          {[address.city, address.pincode].filter(Boolean).join(', ')}
+                        </Text>
+                        {address.deliveryInstructions ? (
+                          <Text numberOfLines={1} className="mt-0.5 text-[11px] text-[#64748B]">
+                            {address.deliveryInstructions}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <View className="items-end gap-1">
+                        {address.isDefault && (
+                          <View className="rounded-full bg-[#E0EAFF] px-2 py-0.5">
+                            <Text className="text-[10px] font-raleway-semibold text-[#023E8A]">Default</Text>
+                          </View>
+                        )}
+                        <View className="rounded-full bg-[#DCFCE7] px-2 py-0.5">
+                          <Text className="text-[10px] font-raleway-semibold text-[#15803D]">Serviceable</Text>
+                        </View>
+                      </View>
                     </View>
                     {isSelected ? <Check size={18} color="#023E8A" /> : null}
                   </Pressable>

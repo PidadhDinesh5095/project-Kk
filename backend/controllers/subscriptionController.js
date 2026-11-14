@@ -33,6 +33,21 @@ const createSubscription = asyncHandler(async (req, res) => {
       'SELECT pause_dates FROM users WHERE id = $1 FOR SHARE',
       [req.user.id]
     );
+    const { rows: addressRows } = await client.query(
+      'SELECT id, is_serviceable FROM addresses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+      [addressId, req.user.id]
+    );
+    if (addressRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Address not found' });
+    }
+    if (!addressRows[0].is_serviceable) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        message: 'This address is outside our delivery area. Choose a serviceable address to create a subscription.',
+      });
+    }
     const startDateIsPaused = (userRows[0]?.pause_dates ?? [])
       .some((date) => dateOnly(date) === startDateKey);
 
@@ -185,7 +200,7 @@ const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: ownedRows } = await client.query(
-      `SELECT status FROM subscriptions WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      `SELECT status, address_id FROM subscriptions WHERE id = $1 AND user_id = $2 FOR UPDATE`,
       [req.params.id, req.user.id]
     );
     if (ownedRows.length === 0) {
@@ -195,6 +210,23 @@ const updateSubscriptionSchedule = asyncHandler(async (req, res) => {
     if (ownedRows[0].status !== 'ACTIVE') {
       await client.query('ROLLBACK');
       return res.status(409).json({ success: false, message: 'Only active subscriptions can change their schedule' });
+    }
+
+    const targetAddressId = addressId ?? ownedRows[0].address_id;
+    const { rows: addressRows } = await client.query(
+      'SELECT id, is_serviceable FROM addresses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+      [targetAddressId, req.user.id]
+    );
+    if (addressRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Address not found' });
+    }
+    if (!addressRows[0].is_serviceable) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        message: 'This address is outside our delivery area. Choose a serviceable address to update the subscription.',
+      });
     }
 
     const setClauses = [

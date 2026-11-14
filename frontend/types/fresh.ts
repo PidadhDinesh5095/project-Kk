@@ -1,4 +1,4 @@
-export interface Address { id: string; label: string; line1: string; city: string; pincode: string; isDefault: boolean; deliveryInstructions?: string; recipientName?: string; recipientPhone?: string; lat?: number; lng?: number; residenceType?: 'COMMUNITY_APARTMENT' | 'INDEPENDENT'; flatNoApartmentFloor?: string; blockTower?: string; landmark?: string }
+export interface Address { id: string; label: string; line1: string; city: string; pincode: string; isDefault: boolean; isServiceable: boolean; deliveryInstructions?: string; recipientName?: string; recipientPhone?: string; lat?: number; lng?: number; residenceType?: 'COMMUNITY_APARTMENT' | 'INDEPENDENT'; flatNoApartmentFloor?: string; blockTower?: string; landmark?: string }
 export interface User { id: string; name: string; phone: string; walletBalance: number; paymentMethods: string[] }
 export interface NutritionBenefit { label: string; value: string }
 
