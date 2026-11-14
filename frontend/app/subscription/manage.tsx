@@ -154,6 +154,7 @@ export default function ManageSubscriptionScreen() {
                   city: selectedAddress.city,
                   latitude: String(selectedAddress.lat ?? ''),
                   longitude: String(selectedAddress.lng ?? ''),
+                  returnTo: 'subscriptions',
                 },
               })}
             >
@@ -165,7 +166,10 @@ export default function ManageSubscriptionScreen() {
             <Text className="text-[13px] text-[#64748B]">No delivery address saved.</Text>
             <Pressable
               className="mt-3 h-10 items-center justify-center rounded-full bg-[#023E8A]"
-              onPress={() => router.push('/address-setup')}
+              onPress={() => router.push({
+                pathname: '/address-setup',
+                params: { returnTo: 'subscriptions' },
+              })}
             >
               <Text className="text-[13px] font-bold text-white">Add Address</Text>
             </Pressable>

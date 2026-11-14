@@ -61,25 +61,26 @@ export async function initializePushNotifications(
     }
 
     stopListening = onMessage(firebaseMessaging, async (message) => {
-      const title = message.notification?.title ?? message.data?.title;
-      const body = message.notification?.body ?? message.data?.body;
-      onForegroundNotification?.({
-        title: title ?? '',
-        body: body ?? '',
-      });
+      const titleValue = message.notification?.title ?? message.data?.title;
+      const bodyValue = message.notification?.body ?? message.data?.body;
+      const title = typeof titleValue === 'string' ? titleValue : '';
+      const body = typeof bodyValue === 'string' ? bodyValue : '';
+      console.info(`[push] foreground FCM message received id=${message.messageId ?? 'unknown'}`);
+      onForegroundNotification?.({ title, body });
 
       if (!title && !body) return;
 
       try {
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: title ?? '',
-            body: body ?? '',
+            title,
+            body,
             data: message.data ?? {},
             sound: 'default',
           },
           trigger: Platform.OS === 'android' ? { channelId: 'alerts' } : null,
         });
+        console.info('[push] foreground notification displayed');
       } catch (error) {
         console.error('[push] failed to display foreground notification', error);
       }

@@ -18,12 +18,21 @@ const createOrder = asyncHandler(async (req, res) => {
 
   const [{ rows: productRows }, { rows: addressRows }] = await Promise.all([
     pool.query('SELECT * FROM products WHERE id = $1', [productId]),
-    pool.query('SELECT * FROM addresses WHERE id = $1 AND user_id = $2', [addressId, req.user.id]),
+    pool.query(
+      'SELECT * FROM addresses WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+      [addressId, req.user.id]
+    ),
   ]);
   const product = productRows[0];
   const address = addressRows[0];
   if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
   if (!address) return res.status(404).json({ success: false, message: 'Address not found' });
+  if (!address.is_serviceable) {
+    return res.status(409).json({
+      success: false,
+      message: 'This address is outside our delivery area. Choose a serviceable address to place an order.',
+    });
+  }
 
   const orderAmount = Number((product.price * quantity).toFixed(2));
   const totalAmount = Number((orderAmount * slots.length).toFixed(2));

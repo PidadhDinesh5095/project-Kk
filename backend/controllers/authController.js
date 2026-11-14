@@ -49,7 +49,7 @@ const verifyOtp = asyncHandler(async (req, res) => {
     );
   } else {
     const { rows: addressRows } = await pool.query(
-      'SELECT EXISTS (SELECT 1 FROM addresses WHERE user_id = $1) AS has_address',
+      'SELECT EXISTS (SELECT 1 FROM addresses WHERE user_id = $1 AND deleted_at IS NULL) AS has_address',
       [user.id]
     );
     isNewUser = !addressRows[0].has_address;

@@ -1,16 +1,16 @@
 // kafka/handlers/address.handler.js
-import pool from '../../db/pool.js';
 import { EVENT_TYPES } from '../constants.js';
 import { notify } from '../notify.js';
 
 const TYPE = 'ADDRESS_UPDATE';
 
-const handleDarkStoreAssigned = async ({ userId, storeName, addressLabel }) => {
+const handleDarkStoreAssigned = async ({ userId, addressId, storeName, addressLabel }) => {
   await notify(userId, {
     type: TYPE,
-    title: 'Delivery available',
-    body: `${addressLabel || 'Your address'} will be served by ${storeName}.`,
-    data: { screen: 'Addresses' },
+    title: 'Address assigned',
+    body: `${addressLabel || 'Your address'} is assigned to ${storeName}. Delivery is available at this location.`,
+    data: { screen: 'Addresses', addressId },
+    referenceId: addressId,
   });
 };
 
@@ -23,21 +23,14 @@ const handleDarkStoreReassigned = async ({ userId, storeName, addressLabel }) =>
   });
 };
 
-// Outside every dark store's area: tell the user AND record the demand.
-const handleUnserviceable = async ({ userId, addressId, pincode, lat, lng }) => {
-  await pool.query(
-    `INSERT INTO unserviceable_demand (user_id, address_id, pincode, lat, lng)
-     SELECT $1, $2, $3, $4, $5
-     WHERE NOT EXISTS (
-       SELECT 1 FROM unserviceable_demand WHERE user_id = $1 AND pincode = $3
-     )`,
-    [userId, addressId ?? null, pincode ?? null, lat ?? null, lng ?? null]
-  );
+// Outside every dark store's area: tell the user without recording a separate demand row.
+const handleUnserviceable = async ({ userId, addressId, addressLabel }) => {
   await notify(userId, {
     type: TYPE,
-    title: "We don't deliver here yet",
-    body: "Your area isn't covered yet. We'll let you know as soon as we start delivering there.",
-    data: { screen: 'Addresses' },
+    title: 'Service not available',
+    body: `Delivery is not available at ${addressLabel || 'your address'} yet.`,
+    data: { screen: 'Addresses', addressId },
+    referenceId: addressId,
   });
 };
 

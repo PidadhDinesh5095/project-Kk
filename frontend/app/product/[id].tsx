@@ -138,9 +138,10 @@ export default function ProductDetailScreen() {
   const [walletShortfall, setWalletShortfall] = useState<number | null>(null);
   const skeletonOpacity = useRef(new Animated.Value(0.45)).current;
 
-  const selectedAddressId = addresses.some((address : Address) => address.id === chosenAddressId)
+  const serviceableAddresses = addresses.filter((address: Address) => address.isServiceable);
+  const selectedAddressId = serviceableAddresses.some((address : Address) => address.id === chosenAddressId)
     ? chosenAddressId
-    : addresses.find((address : Address) => address.isDefault)?.id ?? addresses[0]?.id ?? '';
+    : serviceableAddresses.find((address : Address) => address.isDefault)?.id ?? serviceableAddresses[0]?.id ?? '';
 
   useEffect(() => {
     const interval = setInterval(() => setLiveDate(new Date()), 60000);
@@ -216,7 +217,7 @@ export default function ProductDetailScreen() {
 
   const handleBuyOnceConfirm = async () => {
     const address = addresses.find((item : Address) => item.id === selectedAddressId);
-    if (!selectedDate || !address || selectedSlots.length === 0) return;
+    if (!selectedDate || !address?.isServiceable || selectedSlots.length === 0) return;
     if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
       setWalletCheckError('Unable to verify the order total. Please try again.');
       return;
@@ -512,9 +513,13 @@ export default function ProductDetailScreen() {
                   <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Retry</Text>
                 </Pressable>
               </View>
-            ) : addresses.length === 0 ? (
+            ) : serviceableAddresses.length === 0 ? (
               <View className="rounded-[12px] border border-[#E2E8F0] bg-white p-3">
-                <Text className="text-[13px] text-[#64748B]">Add a delivery address to continue.</Text>
+                <Text className="text-[13px] text-[#64748B]">
+                  {addresses.length === 0
+                    ? 'Add a serviceable delivery address to continue.'
+                    : 'None of your saved addresses are currently serviceable. Add an address in a covered area to continue.'}
+                </Text>
                 <Pressable className="mt-2 self-start" onPress={() => router.push('/address-setup')}>
                   <Text className="text-[13px] font-raleway-bold text-[#023E8A]">Add address</Text>
                 </Pressable>
@@ -525,9 +530,9 @@ export default function ProductDetailScreen() {
                   style={{ maxHeight: 152 }}
                   contentContainerStyle={{ gap: 8 }}
                   nestedScrollEnabled
-                  showsVerticalScrollIndicator={addresses.length > 2}
+                  showsVerticalScrollIndicator={serviceableAddresses.length > 2}
                 >
-                  {addresses.map((address : Address) => {
+                  {serviceableAddresses.map((address : Address) => {
                     const isSelected = selectedAddressId === address.id;
 
                     return (
@@ -539,16 +544,28 @@ export default function ProductDetailScreen() {
                         onPress={() => setChosenAddressId(address.id)}
                       >
                         <MapPin size={17} color={isSelected ? '#023E8A' : '#64748B'} />
-                        <View className="flex-1">
-                          <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
-                            {address.line1 || address.label}{address.isDefault ? ' · Default' : ''}
-                          </Text>
-                          <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
-                            {[address.city, address.pincode].filter(Boolean).join(', ')}
-                          </Text>
-                          {address.deliveryInstructions ? (
-                            <Text numberOfLines={1} className="mt-0.5 text-[11px] text-[#64748B]">{address.deliveryInstructions}</Text>
-                          ) : null}
+                        <View className="flex-1 flex-row items-start justify-between gap-2">
+                          <View className="flex-1">
+                            <Text numberOfLines={1} className="text-[13px] font-raleway-bold text-[#111827]">
+                              {address.line1 || address.label}
+                            </Text>
+                            <Text numberOfLines={1} className="mt-0.5 text-[12px] text-[#64748B]">
+                              {[address.city, address.pincode].filter(Boolean).join(', ')}
+                            </Text>
+                            {address.deliveryInstructions ? (
+                              <Text numberOfLines={1} className="mt-0.5 text-[11px] text-[#64748B]">{address.deliveryInstructions}</Text>
+                            ) : null}
+                          </View>
+                          <View className="items-end gap-1">
+                            {address.isDefault && (
+                              <View className="rounded-full bg-[#E0EAFF] px-2 py-0.5">
+                                <Text className="text-[10px] font-raleway-semibold text-[#023E8A]">Default</Text>
+                              </View>
+                            )}
+                            <View className="rounded-full bg-[#DCFCE7] px-2 py-0.5">
+                              <Text className="text-[10px] font-raleway-semibold text-[#15803D]">Serviceable</Text>
+                            </View>
+                          </View>
                         </View>
                         {isSelected ? <Check size={18} color="#023E8A" /> : null}
                       </Pressable>

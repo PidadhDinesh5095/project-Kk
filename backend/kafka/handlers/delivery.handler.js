@@ -38,8 +38,15 @@ const handlePushSend = async ({ userId, title, body, data = {} }) => {
     'SELECT device_tokens FROM users WHERE id = $1 AND active = true',
     [userId]
   );
+  if (!rows[0]) {
+    console.warn(`[kafka:delivery] Push skipped for user ${userId}: no active user record`);
+    return;
+  }
   const tokens = rows[0]?.device_tokens || [];
-  if (tokens.length === 0) return;
+  if (tokens.length === 0) {
+    console.warn(`[kafka:delivery] Push skipped for user ${userId}: no registered device tokens`);
+    return;
+  }
   if (!admin.apps.length) {
     console.warn(`[kafka:delivery] Push skipped for user ${userId}: Firebase is not configured`);
     return;
@@ -61,11 +68,20 @@ const handlePushSend = async ({ userId, title, body, data = {} }) => {
 
   const dead = [];
   let transient = 0;
+  let successCount = 0;
   res.responses.forEach((r, i) => {
-    if (r.success) return;
-    if (DEAD_TOKEN_CODES.has(r.error?.code)) dead.push(tokens[i]);
+    if (r.success) {
+      successCount += 1;
+      return;
+    }
+
+    const code = r.error?.code || 'unknown';
+    console.warn(`[kafka:delivery] FCM rejected push for user ${userId}, token index ${i}: ${code}`);
+    if (DEAD_TOKEN_CODES.has(code)) dead.push(tokens[i]);
     else transient += 1;
   });
+
+  console.info(`[kafka:delivery] FCM accepted push for ${successCount}/${tokens.length} device tokens for user ${userId}`);
 
   if (dead.length) {
     await pool.query(

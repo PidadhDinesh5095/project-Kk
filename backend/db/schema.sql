@@ -48,23 +48,15 @@ CREATE TABLE addresses (
   lng                    DOUBLE PRECISION NOT NULL,
   delivery_instructions  TEXT[] NOT NULL DEFAULT '{}',  -- subset of PET_AT_HOME, LEAVE_AT_DOOR, RING_BELL, PLACE_IN_BAG, AT_SHOE_RACK, AT_SECURITY
   is_default             BOOLEAN NOT NULL DEFAULT false,
+  is_serviceable         BOOLEAN NOT NULL DEFAULT false,
+  dark_store_id          UUID,
+  deleted_at             TIMESTAMPTZ,
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_addresses_user ON addresses (user_id);
 
 ALTER TABLE users
   ADD CONSTRAINT fk_users_default_address FOREIGN KEY (default_address_id) REFERENCES addresses(id);
-
-CREATE TABLE unserviceable_demand (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  address_id  UUID REFERENCES addresses(id) ON DELETE SET NULL,
-  pincode     TEXT NOT NULL,
-  lat         DOUBLE PRECISION,
-  lng         DOUBLE PRECISION,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, pincode)
-);
 
 -- ---------- Products ----------
 CREATE TABLE products (

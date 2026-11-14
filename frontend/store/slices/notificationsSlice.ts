@@ -19,6 +19,7 @@ type NotificationsListResponse = {
   offset: number;
   limit: number;
   total: number;
+  unreadTotal: number;
   hasMore: boolean;
 };
 type NotificationsState = {
@@ -29,6 +30,7 @@ type NotificationsState = {
   hasMore: boolean;
   offset: number;
   total: number;
+  unreadTotal: number;
 };
 
 function errorMessage(error: unknown, fallback: string) {
@@ -62,7 +64,7 @@ type FetchNotificationsArgs = {
 };
 
 export const fetchNotifications = createAsyncThunk<
-  { items: Notification[]; offset: number; total: number; hasMore: boolean; reset: boolean },
+  { items: Notification[]; offset: number; total: number; unreadTotal: number; hasMore: boolean; reset: boolean },
   FetchNotificationsArgs | void,
   { rejectValue: string; state: RootState }
 >(
@@ -79,6 +81,7 @@ export const fetchNotifications = createAsyncThunk<
         items: payload.items.map(toNotification),
         offset: payload.offset,
         total: payload.total,
+        unreadTotal: payload.unreadTotal,
         hasMore: payload.hasMore,
         reset: args?.reset ?? offset === 0,
       };
@@ -127,6 +130,7 @@ const initialState: NotificationsState = {
   hasMore: true,
   offset: 0,
   total: 0,
+  unreadTotal: 0,
 };
 
 const notificationsSlice = createSlice({
@@ -135,6 +139,7 @@ const notificationsSlice = createSlice({
   reducers: {
     addNotification: (state, action: PayloadAction<NotificationInput>) => {
       state.items.unshift(action.payload);
+      if (!action.payload.isRead) state.unreadTotal += 1;
     },
   },
   extraReducers: (builder) => {
@@ -152,6 +157,7 @@ const notificationsSlice = createSlice({
         state.offset = action.payload.offset + action.payload.items.length;
         state.hasMore = action.payload.hasMore;
         state.total = action.payload.total;
+        state.unreadTotal = action.payload.unreadTotal;
         state.hasLoaded = true;
         state.isLoading = false;
       })
@@ -161,13 +167,17 @@ const notificationsSlice = createSlice({
       })
       .addCase(markNotificationRead.fulfilled, (state, action) => {
         const notification = state.items.find((item) => item.id === action.payload);
-        if (notification) notification.isRead = true;
+        if (notification && !notification.isRead) {
+          notification.isRead = true;
+          state.unreadTotal = Math.max(0, state.unreadTotal - 1);
+        }
       })
       .addCase(markNotificationRead.rejected, (state, action) => {
         state.error = action.payload ?? 'Unable to mark notification as read';
       })
       .addCase(clearNotifications.fulfilled, (state) => {
         state.items = [];
+        state.unreadTotal = 0;
         state.hasLoaded = true;
         state.error = null;
       })

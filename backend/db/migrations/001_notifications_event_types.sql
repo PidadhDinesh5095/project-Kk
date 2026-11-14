@@ -8,14 +8,3 @@ ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN
   'WALLET_TOPUP_FAILED', 'WALLET_WITHDRAW', 'WALLET_DEBITED', 'WALLET_REFUNDED',
   'WALLET_BALANCE_LOW', 'ADDRESS_UPDATE', 'DELIVERY_DATES_PAUSED', 'GENERAL'
 ));
-
-CREATE TABLE IF NOT EXISTS unserviceable_demand (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  address_id  UUID REFERENCES addresses(id) ON DELETE SET NULL,
-  pincode     TEXT NOT NULL,
-  lat         DOUBLE PRECISION,
-  lng         DOUBLE PRECISION,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, pincode)
-);

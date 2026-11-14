@@ -10,14 +10,3 @@ ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type = 
   'WALLET_REFUNDED','WALLET_BALANCE_LOW',
   'ADDRESS_UPDATE','GENERAL'
 ]));
-
--- 2. Unserviceable-address demand
-CREATE TABLE IF NOT EXISTS unserviceable_demand (
-  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    uuid REFERENCES users(id),
-  address_id uuid REFERENCES addresses(id),
-  pincode    text,
-  lat        double precision,
-  lng        double precision,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
