@@ -28,6 +28,7 @@ import {
 } from '@/store/slices/addressesSlice';
 import { useFreshStore } from '@/store/useFreshStore';
 import { Address } from '@/types/fresh';
+import { MAX_SAVED_ADDRESSES } from '@/lib/addressLimits';
 
 type AddressDeleteModal =
   | { type: 'confirm'; address: Address }
@@ -37,6 +38,7 @@ export default function AddressesScreen() {
   const { addresses } = useFreshStore();
   const dispatch = useAppDispatch();
   const { isLoading, isDeleting, settingDefaultAddressId, error, hasLoaded } = useAppSelector((state) => state.addresses);
+  const addressLimitReached = addresses.length >= MAX_SAVED_ADDRESSES;
   const skeletonOpacity = useRef(new Animated.Value(0.45)).current;
   const [deleteModal, setDeleteModal] = useState<AddressDeleteModal | null>(null);
 
@@ -287,19 +289,37 @@ export default function AddressesScreen() {
         ))}
 
         {/* Add Address */}
-        {!isLoading && <Pressable
-          className="mt-1 flex-row items-center justify-center gap-2 rounded-2xl border border-dashed border-[#023E8A] p-[18px]"
-          onPress={() => router.push('/address-setup')}
-        >
-          <Plus
-            size={18}
-            color={colors.primary}
-          />
-
-          <Text className="text-[14px] font-bold text-[#023E8A]">
-            Add New Address
-          </Text>
-        </Pressable>}
+        {!isLoading && (
+          <>
+            <Pressable
+              className={`mt-1 flex-row items-center justify-center gap-2 rounded-2xl border border-dashed border-[#023E8A] p-[18px] ${addressLimitReached ? 'opacity-50' : ''}`}
+              onPress={() => {
+                if (addressLimitReached) {
+                  setDeleteModal({
+                    type: 'status',
+                    title: "Can't add more than 5 addresses",
+                    message: 'Delete an existing address before adding another.',
+                    isError: true,
+                  });
+                  return;
+                }
+                router.push('/address-setup');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={addressLimitReached ? "Can't add more than 5 addresses" : 'Add New Address'}
+            >
+              <Plus size={18} color={colors.primary} />
+              <Text className="text-[14px] font-bold text-[#023E8A]">
+                Add New Address
+              </Text>
+            </Pressable>
+            {addressLimitReached && (
+              <Text className="mt-2 text-center text-[12px] font-raleway-medium text-[#64748B]">
+                Delete an address before adding another.
+              </Text>
+            )}
+          </>
+        )}
       </ScrollView>
 
       <Modal

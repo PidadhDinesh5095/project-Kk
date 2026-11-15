@@ -4,6 +4,8 @@ import { EVENT_TYPES } from '../kafka/constants.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
+const MAX_ADDRESSES_PER_USER = 5;
+
 // POST /addresses
 const createAddress = asyncHandler(async (req, res) => {
   const {
@@ -22,6 +24,17 @@ const createAddress = asyncHandler(async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user.id]);
+    const { rows: countRows } = await client.query(
+      'SELECT count(*)::int AS count FROM addresses WHERE user_id = $1 AND deleted_at IS NULL',
+      [req.user.id]
+    );
+    if (countRows[0].count >= MAX_ADDRESSES_PER_USER) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        message: `You can save up to ${MAX_ADDRESSES_PER_USER} addresses. Delete an existing address to add another.`,
+      });
+    }
 
     // 1. Create the address
     const { rows: inserted } = await client.query(

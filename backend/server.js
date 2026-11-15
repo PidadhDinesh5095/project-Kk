@@ -21,6 +21,7 @@ const { initSocket } = __cjsModule587;
 import { startKafka } from './kafka/index.js';
 import __cjsModule588 from './utils/otpService.js';
 const { cleanupExpiredOtps } = __cjsModule588;
+import { cleanupExpiredPauseDates } from './utils/pauseDateCleanup.js';
 
 import authRoutes from './routes/authRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
@@ -65,7 +66,17 @@ await connectRedis(); // Connect to Upstash Redis
 await startKafka();
 startScheduler();
 
-
+const cleanupPauseDates = () => {
+  cleanupExpiredPauseDates()
+    .then(({ usersUpdated, subscriptionsUpdated }) => {
+      if (usersUpdated > 0 || subscriptionsUpdated > 0) {
+        console.log(`[pause dates] cleaned expired pauses for ${usersUpdated} users and ${subscriptionsUpdated} subscriptions`);
+      }
+    })
+    .catch((err) => console.error('[pause dates] cleanup failed', err));
+};
+cleanupPauseDates();
+setInterval(cleanupPauseDates, 10 * 60 * 1000);
 
 // Postgres has no TTL index like Mongo — sweep expired OTP rows periodically.
 setInterval(() => {

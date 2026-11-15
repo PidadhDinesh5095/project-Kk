@@ -82,7 +82,9 @@ export default function PauseDeliveriesScreen() {
     setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   };
   const currentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
   const canGoPrevious = calendarMonth > currentMonth;
+  const canGoNext = calendarMonth < nextMonth;
 
   return (
     <View className="flex-1 bg-white">
@@ -153,10 +155,11 @@ export default function PauseDeliveriesScreen() {
             </Text>
             <Pressable
               onPress={() => changeMonth(1)}
+              disabled={!canGoNext}
               accessibilityLabel="Next month"
               className="h-10 w-10 items-center justify-center"
             >
-              <ChevronRight size={21} color={colors.primary} />
+              {canGoNext && <ChevronRight size={21} color={colors.primary} />}
             </Pressable>
           </View>
 

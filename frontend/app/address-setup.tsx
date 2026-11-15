@@ -1,5 +1,5 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -32,10 +32,12 @@ import {
   DeliveryInstruction,
   ResidenceType as ApiResidenceType,
   clearAddressError,
+  fetchAddresses,
   saveAddress,
   updateAddress,
 } from '@/store/slices/addressesSlice';
 import { useFreshStore } from '@/store/useFreshStore';
+import { MAX_SAVED_ADDRESSES } from '@/lib/addressLimits';
 
 const residenceTypes = [
   { key: 'Community/Apartment', icon: Building2 },
@@ -72,6 +74,9 @@ export default function AddressSetupScreen() {
   const { addresses, profile } = useFreshStore();
   const dispatch = useAppDispatch();
   const addressLoading = useAppSelector((state) => state.addresses.isSaving || state.addresses.isUpdating);
+  const addressesHasLoaded = useAppSelector((state) => state.addresses.hasLoaded);
+  const addressesIsLoading = useAppSelector((state) => state.addresses.isLoading);
+  const addressesLoadError = useAppSelector((state) => state.addresses.error);
   const params = useLocalSearchParams<{
     addressId?: string;
     returnTo?: string;
@@ -98,6 +103,14 @@ export default function AddressSetupScreen() {
   const [currentLocationText, setCurrentLocationText] = useState('');
   const [instructions, setInstructions] = useState<string[]>([]);
   const [resultModal, setResultModal] = useState<AddressResultModal | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!params.addressId && !addressesHasLoaded && !addressesIsLoading && !addressesLoadError) {
+        void dispatch(fetchAddresses());
+      }
+    }, [addressesHasLoaded, addressesIsLoading, addressesLoadError, dispatch, params.addressId]),
+  );
 
   // Populate address fields when editing or returning from the map picker.
   useEffect(() => {
@@ -145,7 +158,9 @@ export default function AddressSetupScreen() {
     return conflicts.some((c) => instructions.includes(c));
   };
 
+  const addressLimitReached = !params.addressId && addresses.length >= MAX_SAVED_ADDRESSES;
   const canSubmit =
+    (Boolean(params.addressId) || (addressesHasLoaded && !addressLimitReached)) &&
     flatDetails.trim().length > 0 &&
     (residenceType === 'Independent' || blockTower.trim().length > 0) &&
     /^\d{6}$/.test(pincode.trim()) &&
@@ -235,6 +250,32 @@ export default function AddressSetupScreen() {
           {params.addressId ? 'Edit Address' : 'Address'}
         </Text>
       </View>
+
+      {!params.addressId && !addressesHasLoaded && (
+        <View className="mx-5 mb-3 rounded-xl bg-[#EEF3FF] p-3">
+          {addressesIsLoading ? (
+            <Text className="text-center text-[13px] font-raleway-semibold text-[#023E8A]">
+              Checking your saved addresses...
+            </Text>
+          ) : addressesLoadError ? (
+            <>
+              <Text className="text-center text-[13px] font-raleway-semibold text-[#B91C1C]">
+                Unable to check your saved addresses. Retry before adding another.
+              </Text>
+              <Pressable onPress={() => dispatch(fetchAddresses())}>
+                <Text className="mt-2 text-center text-[13px] font-raleway-bold text-[#023E8A]">Retry</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+      )}
+      {addressLimitReached && (
+        <View className="mx-5 mb-3 rounded-xl bg-[#FFF7ED] p-3">
+          <Text className="text-center text-[13px] font-raleway-semibold text-[#92400E]">
+            You can save up to {MAX_SAVED_ADDRESSES} addresses. Delete an existing address to add another.
+          </Text>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}>
 
