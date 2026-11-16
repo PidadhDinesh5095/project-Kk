@@ -3,10 +3,14 @@ import { existsSync } from 'node:fs';
 const androidFirebaseConfig = './google-services.json';
 const iosFirebaseConfig = './GoogleService-Info.plist';
 
+const androidGoogleServices =
+  process.env.GOOGLE_SERVICES_JSON ??
+  (existsSync(androidFirebaseConfig) ? androidFirebaseConfig : undefined);
+
 export default {
   expo: {
-    name: 'Dinesh Farms',
-    slug: 'Dinesh Farms',
+    name: 'Dinesh-Farms',
+    slug: 'Dinesh-Farms',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
@@ -16,6 +20,7 @@ export default {
     ios: {
       icon: './assets/images/icon.png',
       supportsTablet: true,
+      bundleIdentifier: 'com.anonymous.Dineshfarms',
       ...(existsSync(iosFirebaseConfig)
         ? { googleServicesFile: iosFirebaseConfig }
         : {}),
@@ -58,19 +63,24 @@ export default {
       typedRoutes: true,
     },
 
-    
     android: {
       package: 'com.anonymous.Dineshfarms',
       permissions: ['android.permission.POST_NOTIFICATIONS'],
       icon: './assets/images/icon.png',
-      ...(existsSync(androidFirebaseConfig)
-        ? { googleServicesFile: androidFirebaseConfig }
+      ...(androidGoogleServices
+        ? { googleServicesFile: androidGoogleServices }
         : {}),
 
       config: {
         googleMaps: {
           apiKey: process.env.EXPO_PUBLIC_MAPS_API_KEY,
         },
+      },
+    },
+
+    extra: {
+      eas: {
+        projectId: '95597f47-dd1e-4691-851c-9a833c629233',
       },
     },
   },

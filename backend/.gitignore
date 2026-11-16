@@ -5,7 +5,7 @@ node_modules/
 node_modules/
 .env
 .env.*
-kafka/certs/
+
 *firebase-adminsdk*.json
 *.log 
 
